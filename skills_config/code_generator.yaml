@@ -1,0 +1,29 @@
+# 代码生成技能配置
+name: code_generator
+description: 根据描述生成代码
+category: code
+version: "1.0.0"
+author: system
+
+parameters:
+  - name: language
+    type: string
+    description: 编程语言（python/javascript/html/java）
+    required: true
+  - name: description
+    type: string
+    description: 代码功能描述
+    required: true
+
+implementation:
+  type: script
+  language: python
+  code: |
+    def execute(language, description):
+        templates = {
+            "python": f"# Python代码\n# 功能: {description}\n\ndef main():\n    # TODO: 实现功能\n    pass\n\nif __name__ == '__main__':\n    main()",
+            "javascript": f"// JavaScript代码\n// 功能: {description}\n\nfunction main() {{\n    // TODO: 实现功能\n}}\n\nmain();",
+            "html": f"<!-- HTML代码 -->\n<!-- 功能: {description} -->\n<!DOCTYPE html>\n<html>\n<head>\n    <title>页面</title>\n</head>\n<body>\n    <!-- TODO: 实现功能 -->\n</body>\n</html>",
+            "java": f"// Java代码\n// 功能: {description}\n\npublic class Main {{\n    public static void main(String[] args) {{\n        // TODO: 实现功能\n    }}\n}}"
+        }
+        return templates.get(language, f"// {language}代码\n// {description}")

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "local-tools": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "transport": "stdio",
+      "description": "本地MCP工具服务器"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+# 获取当前时间技能配置
+name: get_time
+description: 获取当前日期和时间
+category: general
+version: "1.0.0"
+author: system
+
+parameters: []
+
+implementation:
+  type: script
+  language: python
+  code: |
+    from datetime import datetime, timezone, timedelta
+    
+    def execute():
+        # 使用北京时间
+        beijing_tz = timezone(timedelta(hours=8))
+        now = datetime.now(beijing_tz)
+        
+        weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        weekday = weekdays[now.weekday()]
+        
+        result = "Current Time Info:\n"
+        result += "  Date: " + now.strftime("%Y-%m-%d") + "\n"
+        result += "  Time: " + now.strftime("%H:%M:%S") + " (UTC+8)" + "\n"
+        result += "  Day: " + weekday + "\n"
+        result += "  Timestamp: " + str(int(now.timestamp()))
+        return result

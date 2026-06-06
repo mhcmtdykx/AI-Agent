@@ -1,0 +1,40 @@
+# 网络搜索技能配置
+name: web_search
+description: 搜索网络信息
+category: search
+version: "1.0.0"
+author: system
+
+parameters:
+  - name: query
+    type: string
+    description: 搜索关键词
+    required: true
+  - name: max_results
+    type: integer
+    description: 最大结果数
+    required: false
+    default: 5
+
+# API类型实现
+implementation:
+  type: api
+  endpoint: "https://api.example.com/search"
+  method: POST
+  headers:
+    Content-Type: "application/json"
+  body_template: |
+    {
+      "query": "{{query}}",
+      "max_results": {{max_results}}
+    }
+  response_path: "results"
+
+  # 备用：本地脚本实现
+  fallback:
+    type: script
+    language: python
+    code: |
+      def execute(query, max_results=5):
+          # 模拟搜索结果
+          return f"搜索结果: 关于 '{query}' 的信息（模拟，最多{max_results}条）"
