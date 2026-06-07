@@ -201,5 +201,21 @@ class RAGSystem:
         }
 
 
-# 全局RAG实例
-rag_system = RAGSystem()
+# 全局RAG实例缓存
+_rag_instances = {}
+
+
+def get_rag_system(user_id: str = None) -> RAGSystem:
+    """获取RAG系统实例（支持用户隔离）"""
+    if user_id:
+        if user_id not in _rag_instances:
+            _rag_instances[user_id] = RAGSystem()
+        return _rag_instances[user_id]
+    # 无 user_id 时返回全局实例（向后兼容）
+    if "_global" not in _rag_instances:
+        _rag_instances["_global"] = RAGSystem()
+    return _rag_instances["_global"]
+
+
+# 保持向后兼容
+rag_system = get_rag_system()

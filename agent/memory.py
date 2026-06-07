@@ -197,8 +197,16 @@ class MemoryEnhancedAgent:
 
 
 # 全局记忆系统
-long_term_memory = LongTermMemory()
+_memory_instances = {}
 
 
-def get_long_term_memory() -> LongTermMemory:
-    return long_term_memory
+def get_long_term_memory(user_id: str = None) -> LongTermMemory:
+    if user_id:
+        if user_id not in _memory_instances:
+            storage_path = os.path.join("user_storage", "data", user_id, "memory_storage")
+            _memory_instances[user_id] = LongTermMemory(storage_path=storage_path)
+        return _memory_instances[user_id]
+    # 无 user_id 时返回全局实例（向后兼容）
+    if "_global" not in _memory_instances:
+        _memory_instances["_global"] = LongTermMemory()
+    return _memory_instances["_global"]

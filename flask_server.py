@@ -15,7 +15,7 @@ load_env_file(".env")
 
 from flask import Flask, request, Response, send_file
 from agent import (
-    Agent, ReActAgent, Config, rag_system,
+    Agent, ReActAgent, Config, rag_system, get_rag_system,
     get_multi_agent_system, get_long_term_memory,
     get_evaluation_system, get_observability_system,
     get_skill_registry, get_mcp_server, get_mcp_client
@@ -237,7 +237,10 @@ def rag_upload():
         return json.dumps({"error": "内容不能为空"}), 400
     
     try:
-        chunk_count = rag_system.load_text(content, {"title": title, "source": "upload"})
+        current_user = get_current_user()
+        user_id = current_user["user_id"] if current_user else None
+        user_rag = get_rag_system(user_id)
+        chunk_count = user_rag.load_text(content, {"title": title, "source": "upload"})
         observability.info(f"RAG文档上传: {title}", "rag")
         return json.dumps({
             "status": "ok",
@@ -275,7 +278,10 @@ def rag_search():
         return json.dumps({"error": "查询不能为空"}), 400
     
     try:
-        results = rag_system.search(query, top_k)
+        current_user = get_current_user()
+        user_id = current_user["user_id"] if current_user else None
+        user_rag = get_rag_system(user_id)
+        results = user_rag.search(query, top_k)
         formatted_results = []
         for doc, score in results:
             formatted_results.append({
@@ -289,11 +295,17 @@ def rag_search():
 
 @app.route("/api/rag/stats", methods=["GET"])
 def rag_stats():
-    return json.dumps(rag_system.get_stats())
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_rag = get_rag_system(user_id)
+    return json.dumps(user_rag.get_stats())
 
 @app.route("/api/rag/clear", methods=["POST"])
 def rag_clear():
-    rag_system.clear()
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_rag = get_rag_system(user_id)
+    user_rag.clear()
     return json.dumps({"status": "ok", "message": "知识库已清空"})
 
 # ========== Multi-Agent API ==========
@@ -339,7 +351,10 @@ def multi_agent_messages():
 # ========== Memory API ==========
 @app.route("/api/memory/stats", methods=["GET"])
 def memory_stats():
-    return json.dumps(long_term_memory.get_stats())
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_memory = get_long_term_memory(user_id)
+    return json.dumps(user_memory.get_stats())
 
 @app.route("/api/memory/search", methods=["POST"])
 def memory_search():
@@ -350,7 +365,10 @@ def memory_search():
     if not query:
         return json.dumps({"error": "查询不能为空"}), 400
     
-    results = long_term_memory.search(query, top_k)
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_memory = get_long_term_memory(user_id)
+    results = user_memory.search(query, top_k)
     formatted_results = [
         {
             "content": entry.content,
@@ -365,11 +383,17 @@ def memory_search():
 @app.route("/api/memory/recent", methods=["GET"])
 def memory_recent():
     limit = int(request.args.get("limit", 10))
-    return json.dumps(long_term_memory.get_recent_memories(limit))
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_memory = get_long_term_memory(user_id)
+    return json.dumps(user_memory.get_recent_memories(limit))
 
 @app.route("/api/memory/clear", methods=["POST"])
 def memory_clear():
-    long_term_memory.clear()
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_memory = get_long_term_memory(user_id)
+    user_memory.clear()
     return json.dumps({"status": "ok", "message": "长期记忆已清空"})
 
 # ========== Evaluation API ==========
@@ -628,13 +652,15 @@ def chat():
     
     # 获取RAG上下文
     rag_context = ""
-    if enable_rag and rag_system.is_loaded:
-        rag_context = rag_system.get_context(message, top_k=3)
+    user_rag = get_rag_system(user_id)
+    if enable_rag and user_rag.is_loaded:
+        rag_context = user_rag.get_context(message, top_k=3)
     
     # 获取长期记忆上下文
     memory_context = ""
     if enable_memory:
-        memory_context = long_term_memory.get_context(message, top_k=3)
+        user_memory = get_long_term_memory(user_id)
+        memory_context = user_memory.get_context(message, top_k=3)
     
     # 构建增强消息
     enhanced_message = message
@@ -708,7 +734,8 @@ def chat():
                         if len(history) >= 2:
                             last_reply = history[-1].get("content", "")
                             if last_reply:
-                                long_term_memory.add_conversation(message, last_reply)
+                                user_memory = get_long_term_memory(user_id)
+                                user_memory.add_conversation(message, last_reply)
                     
                 except Exception as e:
                     import traceback, sys
@@ -739,7 +766,8 @@ def chat():
             
             # 保存到长期记忆
             if enable_memory:
-                long_term_memory.add_conversation(message, result.get("response", ""))
+                user_memory = get_long_term_memory(user_id)
+                user_memory.add_conversation(message, result.get("response", ""))
             
             return json.dumps(result, ensure_ascii=False)
 
@@ -762,14 +790,18 @@ def clear():
 @app.route("/api/status", methods=["GET"])
 def status():
     """系统状态"""
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
+    user_rag = get_rag_system(user_id)
+    user_memory = get_long_term_memory(user_id)
     return json.dumps({
         "mode": current_mode,
         "rag": use_rag,
         "memory": use_memory,
         "health": observability.get_system_health(),
         "stats": {
-            "rag": rag_system.get_stats(),
-            "memory": long_term_memory.get_stats(),
+            "rag": user_rag.get_stats(),
+            "memory": user_memory.get_stats(),
             "evaluation": evaluation.get_stats()
         }
     })
