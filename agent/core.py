@@ -191,13 +191,26 @@ class Agent:
             for _ in range(max_iterations):
                 response = self._call_api(messages)
                 result = response.json()
+
+                # 检查API是否返回了错误
+                if "error" in result:
+                    error_msg = result["error"]
+                    if isinstance(error_msg, dict):
+                        error_msg = error_msg.get("message", str(error_msg))
+                    return f"抱歉，API返回了错误: {error_msg}"
                 
                 # 检查choices是否存在且不为空
-                choices = result.get("choices", [])
-                if not choices:
-                    return "抱歉，API返回了空响应"
+                choices = result.get("choices")
+                if not choices or not isinstance(choices, list) or len(choices) == 0:
+                    return f"抱歉，API返回了空响应。原始数据: {json.dumps(result, ensure_ascii=False)[:500]}"
+                
+                # 检查choices[0]是否有效
+                if not isinstance(choices[0], dict):
+                    return "抱歉，API返回了无效的响应格式"
                 
                 assistant_message = choices[0].get("message", {})
+                if not isinstance(assistant_message, dict):
+                    return "抱歉，API返回了无效的消息格式"
 
                 # 检查是否需要调用工具 - 支持新旧两种格式
                 tool_calls = assistant_message.get("tool_calls", [])
@@ -213,24 +226,36 @@ class Agent:
                     if tool_calls:
                         # 新格式: tool_calls数组
                         for tc in tool_calls:
+                            if not isinstance(tc, dict):
+                                continue
                             if tc.get("type") == "function":
+                                func = tc.get("function")
+                                if not isinstance(func, dict):
+                                    continue
                                 calls_to_process.append({
                                     "id": tc.get("id"),
-                                    "name": tc["function"]["name"],
-                                    "arguments": tc["function"]["arguments"]
+                                    "name": func.get("name"),
+                                    "arguments": func.get("arguments", "{}")
                                 })
                     elif function_call:
                         # 旧格式: function_call对象
-                        calls_to_process.append({
-                            "id": None,
-                            "name": function_call["name"],
-                            "arguments": function_call["arguments"]
-                        })
+                        if isinstance(function_call, dict):
+                            calls_to_process.append({
+                                "id": None,
+                                "name": function_call.get("name"),
+                                "arguments": function_call.get("arguments", "{}")
+                            })
                     
                     # 处理每个工具调用
                     for call in calls_to_process:
-                        function_name = call["name"]
-                        arguments = json.loads(call["arguments"]) if isinstance(call["arguments"], str) else call["arguments"]
+                        function_name = call.get("name")
+                        if not function_name:
+                            continue
+                        raw_args = call.get("arguments", "{}")
+                        try:
+                            arguments = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                        except (json.JSONDecodeError, TypeError):
+                            arguments = {}
                         
                         # 使用技能系统执行工具
                         tool_result = execute_tool(function_name, **arguments)
@@ -268,7 +293,11 @@ class Agent:
             return "达到最大迭代次数，请重试"
 
         except Exception as e:
-            return f"抱歉，处理您的请求时出现了错误: {e}"
+            import traceback, sys
+            marker = f"[AGENT_CHAT_ERR:{type(e).__name__}:{e}]"
+            print(marker, file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+            return f"抱歉，处理您的请求时出现了错误(Chat): {e}"
 
     def chat_stream(self, message):
         """
@@ -280,6 +309,13 @@ class Agent:
         Yields:
             包含type和content的字典，或纯文本片段
         """
+        import sys, os
+        try:
+            _dbg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_traceback.log")
+            _dbg = open(_dbg_path, "a", encoding="utf-8")
+            _dbg.write(f"[chat_stream] start, cwd={os.getcwd()}\n"); _dbg.flush()
+        except Exception:
+            _dbg = None
         try:
             messages = self._build_messages(message)
             max_iterations = self.config.max_iterations
@@ -302,7 +338,23 @@ class Agent:
                         break
                     try:
                         chunk = json.loads(line)
-                        delta = chunk["choices"][0].get("delta", {})
+                        # 检查API是否返回了错误
+                        if "error" in chunk:
+                            error_msg = chunk["error"]
+                            if isinstance(error_msg, dict):
+                                error_msg = error_msg.get("message", str(error_msg))
+                            full_reply += f"\nAPI错误: {error_msg}"
+                            yield {"content": f"\nAPI错误: {error_msg}"}
+                            continue
+                        choices = chunk.get("choices")
+                        if not choices or not isinstance(choices, list) or len(choices) == 0:
+                            continue
+                        # 检查choices[0]是否有效
+                        if not isinstance(choices[0], dict):
+                            continue
+                        delta = choices[0].get("delta", {})
+                        if not isinstance(delta, dict):
+                            continue
 
                         # 处理文本内容
                         if delta.get("content"):
@@ -314,18 +366,26 @@ class Agent:
                         if delta.get("tool_calls"):
                             has_tool_calls = True
                             for tc_delta in delta["tool_calls"]:
+                                if not isinstance(tc_delta, dict):
+                                    continue
                                 idx = tc_delta.get("index", 0)
                                 if idx not in tool_calls_map:
                                     tool_calls_map[idx] = {"id": "", "name": "", "arguments": ""}
                                 if tc_delta.get("id"):
                                     tool_calls_map[idx]["id"] = tc_delta["id"]
                                 func = tc_delta.get("function", {})
-                                if func.get("name"):
-                                    tool_calls_map[idx]["name"] = func["name"]
-                                if func.get("arguments"):
-                                    tool_calls_map[idx]["arguments"] += func["arguments"]
+                                if isinstance(func, dict):
+                                    if func.get("name"):
+                                        tool_calls_map[idx]["name"] = func["name"]
+                                    if func.get("arguments"):
+                                        tool_calls_map[idx]["arguments"] += func["arguments"]
                     except json.JSONDecodeError:
                         continue
+                    except Exception as _inner_e:
+                        if _dbg: _dbg.write(f"[inner exception] {_inner_e!r}\n"); _dbg.flush()
+                        continue
+
+                if _dbg: _dbg.write(f"[after loop] has_tool_calls={has_tool_calls}\n"); _dbg.flush()
 
                 # 如果有工具调用，执行它们
                 if has_tool_calls and tool_calls_map:
@@ -343,7 +403,9 @@ class Agent:
                     # 执行每个工具调用
                     for idx in sorted(tool_calls_map.keys()):
                         tc = tool_calls_map[idx]
-                        tool_name = tc["name"]
+                        tool_name = tc.get("name")
+                        if not tool_name:
+                            continue
                         try:
                             args = json.loads(tc["arguments"]) if tc["arguments"] else {}
                         except json.JSONDecodeError:
@@ -369,16 +431,30 @@ class Agent:
                 if had_previous_tools and full_reply:
                     # 如果之前有工具调用，将最终回复标记为answer
                     yield {"type": "answer", "content": full_reply}
+
+                if _dbg: _dbg.write(f"[before save] history_len={len(self.chat_history)}\n"); _dbg.flush()
                 self.chat_history.append({"role": "user", "content": message})
                 self.chat_history.append({"role": "assistant", "content": full_reply})
                 self._save_history()
+                if _dbg: _dbg.write(f"[done OK]\n"); _dbg.flush()
+                if _dbg: _dbg.close()
                 return
 
             # 达到最大迭代次数
             yield {"content": "\n\n达到最大迭代次数，请重试"}
 
         except Exception as e:
-            yield {"content": f"抱歉，处理您的请求时出现了错误: {e}"}
+            import traceback, sys
+            marker = f"[AGENT_STREAM_ERR:{type(e).__name__}:{e}]"
+            print(marker, file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+            if _dbg:
+                try:
+                    _dbg.write(f"[EXCEPTION] {marker}\n")
+                    traceback.print_exc(file=_dbg)
+                    _dbg.flush()
+                except: pass
+            yield {"content": f"抱歉，处理您的请求时出现了错误(Stream): {e}"}
 
     def clear_memory(self):
         """清除对话历史"""
@@ -638,11 +714,26 @@ Answer: [最终回答]
                 response = self._call_api(messages)
                 result = response.json()
                 
-                choices = result.get("choices", [])
-                if not choices:
-                    return {"thoughts": thoughts, "answer": "抱歉，API返回了空响应"}
+                # 检查API是否返回了错误
+                if "error" in result:
+                    error_msg = result["error"]
+                    if isinstance(error_msg, dict):
+                        error_msg = error_msg.get("message", str(error_msg))
+                    return {"thoughts": thoughts, "answer": f"抱歉，API返回了错误: {error_msg}"}
                 
-                reply = choices[0].get("message", {}).get("content", "")
+                choices = result.get("choices")
+                if not choices or not isinstance(choices, list) or len(choices) == 0:
+                    return {"thoughts": thoughts, "answer": f"抱歉，API返回了空响应。原始数据: {json.dumps(result, ensure_ascii=False)[:500]}"}
+                
+                # 检查choices[0]是否有效
+                if not isinstance(choices[0], dict):
+                    return {"thoughts": thoughts, "answer": "抱歉，API返回了无效的响应格式"}
+                
+                message_obj = choices[0].get("message", {})
+                if not isinstance(message_obj, dict):
+                    return {"thoughts": thoughts, "answer": "抱歉，API返回了无效的消息格式"}
+                
+                reply = message_obj.get("content", "") or ""
                 
                 # 检查是否有Answer
                 if "Answer:" in reply:
@@ -708,9 +799,11 @@ Answer: [最终回答]
             }
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return {
                 "thoughts": [],
-                "answer": f"抱歉，处理您的请求时出现了错误: {e}"
+                "answer": f"抱歉，处理您的请求时出现了错误(ReAct): {e}"
             }
 
     def chat_stream(self, message):
@@ -742,15 +835,25 @@ Answer: [最终回答]
                                 break
                             try:
                                 chunk = json.loads(line)
-                                choices = chunk.get("choices", [])
-                                if choices:
+                                # 检查API错误
+                                if "error" in chunk:
+                                    error_msg = chunk["error"]
+                                    if isinstance(error_msg, dict):
+                                        error_msg = error_msg.get("message", str(error_msg))
+                                    full_reply += f"\nAPI错误: {error_msg}"
+                                    yield {"content": f"\nAPI错误: {error_msg}"}
+                                    continue
+                                choices = chunk.get("choices")
+                                if choices and isinstance(choices, list) and len(choices) > 0 and isinstance(choices[0], dict):
                                     delta = choices[0].get("delta", {})
-                                    if delta.get("content"):
+                                    if isinstance(delta, dict) and delta.get("content"):
                                         content = delta["content"]
                                         full_reply += content
                                         # 实时输出每个字符 - 只返回content，不带type
                                         yield {"content": content}
                             except json.JSONDecodeError:
+                                continue
+                            except Exception:
                                 continue
                 
                 # 完整响应获取后，检查是否需要执行工具
@@ -803,7 +906,9 @@ Answer: [最终回答]
                 self._save_history()
 
         except Exception as e:
-            yield {"type": "answer", "content": f"\n\n抱歉，处理您的请求时出现了错误: {e}"}
+            import traceback
+            traceback.print_exc()
+            yield {"type": "answer", "content": f"\n\n抱歉，处理您的请求时出现了错误(ReActStream): {e}"}
 
     def clear_memory(self):
         """清除对话历史"""

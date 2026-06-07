@@ -153,11 +153,12 @@ def mode():
 
 # ========== RAG API ==========
 @app.route("/api/rag/upload", methods=["POST"])
+@app.route("/api/rag/add-text", methods=["POST"])
 def rag_upload():
     # 支持文件上传和文本上传两种方式
     if request.content_type and 'multipart/form-data' in request.content_type:
-        # 文件上传方式
-        file = request.files.get('file')
+        # 文件上传方式 - 支持 'file' 和 'files' 两种字段名
+        file = request.files.get('file') or request.files.get('files')
         if not file:
             return json.dumps({"error": "没有上传文件"}), 400
         
@@ -662,6 +663,10 @@ def chat():
                                 long_term_memory.add_conversation(message, last_reply)
                     
                 except Exception as e:
+                    import traceback, sys
+                    marker = f"[GENERATE_ERR:{type(e).__name__}:{e}]"
+                    print(marker, file=sys.stderr, flush=True)
+                    traceback.print_exc(file=sys.stderr)
                     observability.error(f"聊天错误: {e}", "chat")
                     yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
             
@@ -772,7 +777,8 @@ def upload_image():
         resp.raise_for_status()
         result = resp.json()
 
-        answer = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choices = result.get("choices", [])
+        answer = choices[0].get("message", {}).get("content", "") if choices and isinstance(choices, list) and len(choices) > 0 and isinstance(choices[0], dict) else ""
         return json.dumps({
             "status": "ok",
             "filename": file.filename,

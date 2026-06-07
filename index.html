@@ -135,6 +135,28 @@ body.light .noise{opacity:.02}
 .typing span:nth-child(1){animation-delay:-.32s}
 .typing span:nth-child(2){animation-delay:-.16s}
 @keyframes td{0%,80%,100%{transform:scale(.4);opacity:.4}40%{transform:scale(1);opacity:1}}
+/* Thinking Animation */
+.thinking{display:none;padding:14px 18px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--bdr);border-radius:0 var(--r2) var(--r2) 0;border-left:3px solid #7c8aff;width:fit-content;max-width:85%}
+.thinking.active{display:block;animation:mi .3s cubic-bezier(.4,0,.2,1)}
+.thinking-inner{display:flex;align-items:center;gap:12px}
+.thinking-icon{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#7c8aff,#6366f1);display:flex;align-items:center;justify-content:center;animation:tpulse 2s ease-in-out infinite}
+.thinking-icon svg{width:14px;height:14px;color:#fff}
+@keyframes tpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(124,138,255,.4)}50%{transform:scale(1.05);box-shadow:0 0 0 8px rgba(124,138,255,0)}}
+.thinking-text{font-size:13px;color:var(--t2)}
+.thinking-dots{display:inline-flex;gap:3px;margin-left:4px}
+.thinking-dots span{width:4px;height:4px;background:#7c8aff;border-radius:50%;animation:tdot 1.4s infinite ease-in-out both}
+.thinking-dots span:nth-child(1){animation-delay:0s}
+.thinking-dots span:nth-child(2){animation-delay:.2s}
+.thinking-dots span:nth-child(3){animation-delay:.4s}
+@keyframes tdot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
+/* Think Mode Button */
+.btn-think{width:36px;height:36px;border-radius:8px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;position:relative}
+.btn-think:hover{background:var(--bg4);color:var(--t2);border-color:var(--bdr2)}
+.btn-think.active{background:rgba(124,138,255,.15);border-color:#7c8aff;color:#7c8aff}
+.btn-think.active:hover{background:rgba(124,138,255,.25)}
+.btn-think svg{width:16px;height:16px}
+.btn-think .think-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);padding:4px 8px;background:var(--bg4);border:1px solid var(--bdr);border-radius:4px;font-size:11px;color:var(--t2);white-space:nowrap;pointer-events:none}
+.btn-think:hover .think-tooltip{display:block}
 /* Input */
 .chat-input{position:sticky;bottom:0;padding:12px 32px 16px;background:linear-gradient(to top,var(--bg) 60%,transparent);display:flex;align-items:flex-end;gap:10px;flex-shrink:0}
 .iw{flex:1;position:relative;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r2);transition:all .3s}
@@ -277,6 +299,16 @@ body.light .noise{opacity:.02}
             </div>
           </div>
           <div class="typing" id="typing"><span></span><span></span><span></span></div>
+          <div class="thinking" id="thinking">
+            <div class="thinking-inner">
+              <div class="thinking-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path><path d="M10 17v4"></path><path d="M14 17v4"></path></svg>
+              </div>
+              <div class="thinking-text">
+                思考中<span class="thinking-dots"><span></span><span></span><span></span></span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="chat-input">
           <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.py,.js,.html,.css" style="display:none" onchange="handleFileSelect(event)">
@@ -290,6 +322,10 @@ body.light .noise{opacity:.02}
             <div class="ihint">Enter</div>
           </div>
           <button class="qc-trigger" onclick="toggleQuickCmds()" title="快捷指令">/</button>
+          <button class="btn-think" id="thinkBtn" onclick="toggleThinkMode()" title="思考模式">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path><path d="M10 17v4"></path><path d="M14 17v4"></path></svg>
+            <span class="think-tooltip">思考模式</span>
+          </button>
           <button class="btn-send" id="sendBtn" onclick="sendMessage()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
           </button>
@@ -404,7 +440,7 @@ const chatMsgs=document.getElementById("chatMsgs"),userInput=document.getElement
 marked.setOptions({highlight:function(c,l){if(l&&hljs.getLanguage(l)){try{return hljs.highlight(c,{language:l}).value}catch(e){}}return hljs.highlightAuto(c).value},breaks:true,gfm:true});
 function renderMarkdown(t){try{const h=marked.parse(t);return h.replace(/<pre><code class="language-(\w+)">/g,'<div class="code-hdr"><span class="code-lang">$1</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div><pre><code class="language-$1">')}catch(e){return escapeHtml(t)}}
 function copyCode(b){const c=b.closest('.code-hdr').nextElementSibling.querySelector('code');navigator.clipboard.writeText(c.textContent).then(()=>{b.textContent='已复制';b.classList.add('copied');setTimeout(()=>{b.textContent='复制';b.classList.remove('copied')},2000)})}
-let isStreaming=false,abortController=null,isDarkTheme=true,quickCmdsOpen=false;
+let isStreaming=false,abortController=null,isDarkTheme=true,quickCmdsOpen=false,thinkMode=false;
 const shortcuts={'ctrl+enter':sendMessage,'ctrl+l':clearChat,'ctrl+n':createNewChat,'ctrl+shift+t':toggleTheme};
 let currentChatId=null,chatHistory=[],selectedFiles=[];
 const QUICK_COMMANDS=[
@@ -417,7 +453,7 @@ const QUICK_COMMANDS=[
   {cmd:'/mermaid',desc:'生成图表',action:()=>{userInput.value='用Mermaid画一个流程图：';userInput.focus()}}
 ];
 
-window.onload=function(){loadChatHistory();loadTheme();initShortcuts();loadAllStats();checkHealth()};
+window.onload=function(){loadChatHistory();loadTheme();initShortcuts();loadThinkMode();loadAllStats();checkHealth()};
 function loadTheme(){if(localStorage.getItem('theme')==='light'){isDarkTheme=false;document.body.classList.add('light')}}
 function toggleTheme(){isDarkTheme=!isDarkTheme;document.body.classList.toggle('light',!isDarkTheme);localStorage.setItem('theme',isDarkTheme?'dark':'light')}
 function initShortcuts(){document.addEventListener('keydown',function(e){if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'){if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();sendMessage()}return}const k=[];if(e.ctrlKey)k.push('ctrl');if(e.shiftKey)k.push('shift');if(e.altKey)k.push('alt');k.push(e.key.toLowerCase());const sk=k.join('+');if(shortcuts[sk]){e.preventDefault();shortcuts[sk]()}})}
@@ -431,6 +467,10 @@ function removeFile(i){selectedFiles.splice(i,1);updateFilePreview()}
 function clearFiles(){selectedFiles=[];updateFilePreview()}
 function handleKeyPress(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage()}}
 function getBadges(){return[]}
+function toggleThinkMode(){thinkMode=!thinkMode;const btn=document.getElementById('thinkBtn');btn.classList.toggle('active',thinkMode);localStorage.setItem('thinkMode',thinkMode?'true':'false')}
+function loadThinkMode(){if(localStorage.getItem('thinkMode')==='true'){thinkMode=true;document.getElementById('thinkBtn').classList.add('active')}}
+function showThinking(){hideThinking();const msgs=document.getElementById('chatMsgs');const div=document.createElement('div');div.className='thinking active';div.id='thinkingInline';div.innerHTML='<div class="thinking-inner"><div class="thinking-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path><path d="M10 17v4"></path><path d="M14 17v4"></path></svg></div><div class="thinking-text">思考中<span class="thinking-dots"><span></span><span></span><span></span></span></div></div></div>';msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight}
+function hideThinking(){const el=document.getElementById('thinkingInline');if(el)el.remove();const el2=document.getElementById('thinking');if(el2)el2.classList.remove('active')}
 function getReactLabel(t){return{thought:'思考',action:'行动',observation:'观察',answer:'回答'}[t]||t}
 
 async function sendMessage(){
@@ -441,18 +481,27 @@ async function sendMessage(){
   if(selectedFiles.length){const fn=selectedFiles.map(f=>f.name).join(', ');dm=message?message+'\n'+fn:fn}
   addMessage(dm,true);saveCurrentMessage(dm,true);userInput.value="";
   isStreaming=true;updateBtn();abortController=new AbortController();
+  
+  // 只在思考模式下显示思考动画
+  if(thinkMode) showThinking();
+  
   try{
     let opts={method:"POST",signal:abortController.signal};
-    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react','false');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
-    else{opts.headers={"Content-Type":"application/json"};opts.body=JSON.stringify({message,stream:true,react:false,rag:true,memory:true,multi_agent:false})}
+    const useReact=thinkMode;
+    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react',useReact?'true':'false');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
+    else{opts.headers={"Content-Type":"application/json"};opts.body=JSON.stringify({message,stream:true,react:useReact,rag:true,memory:true,multi_agent:false})}
     clearFiles();
     const resp=await fetch("/api/chat",opts);const reader=resp.body.getReader();const dec=new TextDecoder();let buf="",full="",reason="",aiDiv=null;
+    
+    // 隐藏思考动画，开始显示内容
+    hideThinking();
+    
     {aiDiv=addMessage("",false,true,badges);let secs=[],ct="",done=false;
     while(!done){const{done:d,value}=await reader.read();if(d)break;buf+=dec.decode(value,{stream:true});const lines=buf.split("\n");buf=lines.pop()||"";
-    for(const line of lines){if(line.startsWith("data: ")){const data=line.slice(6).trim();if(data==="[DONE]"){if(ct)secs.push({type:"thought",content:ct});done=true;break}
-    try{const p=JSON.parse(data);if(p.type&&p.content){if(ct){secs.push({type:"thought",content:ct});ct=""}secs.push({type:p.type,content:p.content});updateReact(aiDiv,secs,badges)}else if(p.content){ct+=p.content;updateReact(aiDiv,[...secs,{type:"thought",content:ct}],badges)}else if(p.reasoning){reason+=p.reasoning;updateNormal(aiDiv,reason,full,true,badges)}else if(p.content!==undefined){full+=p.content;updateNormal(aiDiv,reason,full,true,badges)}}catch(e){}}}}
-    if(secs.length)updateReact(aiDiv,secs,badges);else updateNormal(aiDiv,reason,full,false,badges)}
-  }catch(e){if(e.name!=='AbortError')addMessage("请求失败: "+e.message,false)}
+    for(const line of lines){if(line.startsWith("data: ")){const data=line.slice(6).trim();if(data==="[DONE]"){if(useReact&&ct)secs.push({type:"thought",content:ct});done=true;break}
+    try{const p=JSON.parse(data);if(p.type&&p.content){if(useReact){if(ct){secs.push({type:"thought",content:ct});ct=""}secs.push({type:p.type,content:p.content});updateReact(aiDiv,secs,badges)}else{full+=p.content;updateNormal(aiDiv,reason,full,true,badges)}}else if(p.content){if(useReact){ct+=p.content;updateReact(aiDiv,[...secs,{type:"thought",content:ct}],badges)}else{full+=p.content;updateNormal(aiDiv,reason,full,true,badges)}}else if(p.reasoning){reason+=p.reasoning;updateNormal(aiDiv,reason,full,true,badges)}else if(p.content!==undefined){full+=p.content;updateNormal(aiDiv,reason,full,true,badges)}}catch(e){}}}}
+    if(useReact&&secs.length)updateReact(aiDiv,secs,badges);else updateNormal(aiDiv,reason,full,false,badges)}
+  }catch(e){hideThinking();if(e.name!=='AbortError')addMessage("请求失败: "+e.message,false)}
   finally{isStreaming=false;updateBtn()}
 }
 function addMessage(c,isUser,streaming,badges){const d=document.createElement("div");d.className="msg";if(isUser){d.innerHTML='<div class="umsg"><div class="umsg-label">You</div>'+escapeHtml(c)+'</div>'}else{d.innerHTML='<div class="amsg"><div class="amsg-label">光子</div>'+(streaming?'':renderMarkdown(c))+'</div>'}if(welcome)welcome.style.display="none";typing.style.display="none";chatMsgs.appendChild(d);chatMsgs.scrollTop=chatMsgs.scrollHeight;return isUser?d:d.querySelector('.amsg')}
@@ -461,7 +510,7 @@ function updateNormal(m,reason,content,streaming,bads){const k=reason+'\x00'+con
 function stopStreaming(){if(abortController){abortController.abort();abortController=null}isStreaming=false;updateBtn()}
 function updateBtn(){sendBtn.classList.toggle('stop',isStreaming);sendBtn.innerHTML=isStreaming?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>':'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>'}
 function createNewChat(){stopStreaming();const id='chat_'+Date.now();chatHistory.unshift({id,title:'新对话',messages:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});currentChatId=id;clearChatUI();saveChatHistory();renderConvList()}
-function clearChatUI(){chatMsgs.innerHTML='<div class="welcome" id="welcome"><div class="welcome-icon">&#9670;</div><h2>你好，我是光子</h2><p>可以帮你回答问题、分析代码、搜索信息。</p><div class="welcome-hints"><div class="welcome-hint" onclick="userInput.value=\'帮我分析一段代码\';userInput.focus()">分析代码</div><div class="welcome-hint" onclick="userInput.value=\'搜索最新的AI技术动态\';userInput.focus()">搜索信息</div><div class="welcome-hint" onclick="userInput.value=\'用Mermaid画一个流程图\';userInput.focus()">生成图表</div></div></div><div class="typing" id="typing"><span></span><span></span><span></span></div>'}
+function clearChatUI(){chatMsgs.innerHTML='<div class="welcome" id="welcome"><div class="welcome-icon">&#9670;</div><h2>你好，我是光子</h2><p>可以帮你回答问题、分析代码、搜索信息。</p><div class="welcome-hints"><div class="welcome-hint" onclick="userInput.value=\'帮我分析一段代码\';userInput.focus()">分析代码</div><div class="welcome-hint" onclick="userInput.value=\'搜索最新的AI技术动态\';userInput.focus()">搜索信息</div><div class="welcome-hint" onclick="userInput.value=\'用Mermaid画一个流程图\';userInput.focus()">生成图表</div></div></div><div class="typing" id="typing"><span></span><span></span><span></span></div><div class="thinking" id="thinking"><div class="thinking-inner"><div class="thinking-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path><path d="M10 17v4"></path><path d="M14 17v4"></path></svg></div><div class="thinking-text">思考中<span class="thinking-dots"><span></span><span></span><span></span></span></div></div></div>'}
 function loadChatHistory(){try{const s=localStorage.getItem('chatHistory');if(s)chatHistory=JSON.parse(s)}catch(e){chatHistory=[]}renderConvList()}
 function saveChatHistory(){try{localStorage.setItem('chatHistory',JSON.stringify(chatHistory))}catch(e){}}
 function renderConvList(){if(!convItems)return;convItems.innerHTML='';if(!chatHistory.length){convItems.innerHTML='<div class="conv-empty">暂无对话</div>';return}chatHistory.forEach(c=>{const d=document.createElement('div');d.className='conv-item'+(c.id===currentChatId?' active':'');d.innerHTML='<div class="conv-title">'+escapeHtml(c.title)+'</div><div class="conv-time">'+new Date(c.updatedAt).toLocaleString()+'</div><button class="conv-del" onclick="event.stopPropagation();deleteChat(\''+c.id+'\')">&times;</button>';d.onclick=()=>loadChat(c.id);convItems.appendChild(d)})}
