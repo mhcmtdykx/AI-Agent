@@ -216,16 +216,22 @@ def execute_tool(tool_name, **kwargs):
     try:
         from ..mcp_client import get_mcp_client
         client = get_mcp_client()
-        mcp_result = client.call_tool(tool_name, kwargs)
-        if mcp_result and not mcp_result.get("error"):
-            # MCP返回格式可能是 {"content": [{"text": "..."}]} 或直接字符串
-            if isinstance(mcp_result, dict):
-                content = mcp_result.get("content", [])
-                if isinstance(content, list) and content:
-                    texts = [item.get("text", str(item)) for item in content if isinstance(item, dict)]
-                    return "\n".join(texts) if texts else str(mcp_result)
-                return str(mcp_result.get("result", mcp_result))
-            return str(mcp_result)
+        # 遍历所有MCP服务器查找工具
+        for server_name in client.servers:
+            try:
+                tools = client.list_tools(server_name)
+                if any(t.get("name") == tool_name for t in tools):
+                    mcp_result = client.call_tool(server_name, tool_name, kwargs)
+                    if mcp_result:
+                        if isinstance(mcp_result, dict):
+                            content = mcp_result.get("content", [])
+                            if isinstance(content, list) and content:
+                                texts = [item.get("text", str(item)) for item in content if isinstance(item, dict)]
+                                return "\n".join(texts) if texts else str(mcp_result)
+                            return str(mcp_result.get("result", mcp_result))
+                        return str(mcp_result)
+            except Exception:
+                continue
     except Exception:
         pass
 

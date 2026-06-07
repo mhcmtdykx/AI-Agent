@@ -399,8 +399,8 @@ def skills_get(skill_name):
 @app.route("/api/skills/execute", methods=["POST"])
 def skills_execute():
     data = request.get_json()
-    skill_name = data.get("skill")
-    arguments = data.get("arguments", {})
+    skill_name = data.get("skill_name") or data.get("skill")
+    arguments = data.get("parameters") or data.get("arguments", {})
     
     if not skill_name:
         return json.dumps({"error": "缺少技能名称"}), 400
@@ -451,40 +451,85 @@ def mcp_info():
 
 @app.route("/api/mcp/tools", methods=["GET"])
 def mcp_tools():
-    result = mcp_client.list_tools()
-    return json.dumps({"tools": result})
+    all_tools = []
+    for name in mcp_client.servers:
+        try:
+            tools = mcp_client.list_tools(name)
+            if isinstance(tools, list):
+                for t in tools:
+                    t["_server"] = name
+                all_tools.extend(tools)
+        except Exception:
+            pass
+    return json.dumps({"tools": all_tools})
 
 @app.route("/api/mcp/tools/call", methods=["POST"])
 def mcp_tools_call():
     data = request.get_json()
     tool_name = data.get("tool")
     arguments = data.get("arguments", {})
+    server_name = data.get("server")
     
     if not tool_name:
         return json.dumps({"error": "缺少工具名称"}), 400
     
     try:
-        result = mcp_client.call_tool(tool_name, arguments)
-        return json.dumps({"result": result})
+        # 如果指定了服务器，直接调用
+        if server_name:
+            result = mcp_client.call_tool(server_name, tool_name, arguments)
+            return json.dumps({"result": result})
+        
+        # 否则遍历所有服务器查找工具
+        for name in mcp_client.servers:
+            try:
+                tools = mcp_client.list_tools(name)
+                if any(t.get("name") == tool_name for t in tools):
+                    result = mcp_client.call_tool(name, tool_name, arguments)
+                    return json.dumps({"result": result})
+            except Exception:
+                continue
+        
+        return json.dumps({"error": f"未找到工具: {tool_name}"}), 404
     except Exception as e:
         return json.dumps({"error": str(e)}), 500
 
 @app.route("/api/mcp/resources", methods=["GET"])
 def mcp_resources():
-    result = mcp_client.list_resources()
-    return json.dumps({"resources": result})
+    all_resources = []
+    for name in mcp_client.servers:
+        try:
+            resources = mcp_client.list_resources(name)
+            if isinstance(resources, list):
+                for r in resources:
+                    r["_server"] = name
+                all_resources.extend(resources)
+        except Exception:
+            pass
+    return json.dumps({"resources": all_resources})
 
 @app.route("/api/mcp/resources/read", methods=["POST"])
 def mcp_resources_read():
     data = request.get_json()
     uri = data.get("uri")
+    server_name = data.get("server")
     
     if not uri:
         return json.dumps({"error": "缺少资源URI"}), 400
     
     try:
-        content = mcp_client.read_resource(uri)
-        return json.dumps({"content": content})
+        if server_name:
+            content = mcp_client.read_resource(server_name, uri)
+            return json.dumps({"content": content})
+        
+        # 遍历所有服务器尝试读取
+        for name in mcp_client.servers:
+            try:
+                content = mcp_client.read_resource(name, uri)
+                return json.dumps({"content": content})
+            except Exception:
+                continue
+        
+        return json.dumps({"error": "无法读取资源"}), 404
     except Exception as e:
         return json.dumps({"error": str(e)}), 500
 

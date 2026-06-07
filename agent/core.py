@@ -92,18 +92,22 @@ class Agent:
         try:
             from .mcp_client import get_mcp_client
             client = get_mcp_client()
-            mcp_tools = client.list_tools()
-            if isinstance(mcp_tools, dict) and "tools" in mcp_tools:
-                for t in mcp_tools["tools"]:
-                    tool_def = {
-                        "type": "function",
-                        "function": {
-                            "name": t.get("name", ""),
-                            "description": t.get("description", ""),
-                            "parameters": t.get("inputSchema", {"type": "object", "properties": {}})
-                        }
-                    }
-                    tools.append(tool_def)
+            for server_name in client.servers:
+                try:
+                    mcp_tools = client.list_tools(server_name)
+                    if isinstance(mcp_tools, list):
+                        for t in mcp_tools:
+                            tool_def = {
+                                "type": "function",
+                                "function": {
+                                    "name": t.get("name", ""),
+                                    "description": t.get("description", ""),
+                                    "parameters": t.get("inputSchema", {"type": "object", "properties": {}})
+                                }
+                            }
+                            tools.append(tool_def)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -566,14 +570,18 @@ Answer: [最终回答]
         try:
             from .mcp_client import get_mcp_client
             client = get_mcp_client()
-            tools = client.list_tools()
-            if isinstance(tools, dict) and "tools" in tools:
-                desc = []
-                for t in tools["tools"]:
-                    name = t.get("name", "")
-                    d = t.get("description", "")
-                    desc.append(f"- {name}: {d}")
-                return "\n".join(desc)
+            desc = []
+            for server_name in client.servers:
+                try:
+                    tools = client.list_tools(server_name)
+                    if isinstance(tools, list):
+                        for t in tools:
+                            name = t.get("name", "")
+                            d = t.get("description", "")
+                            desc.append(f"- {name}: {d}")
+                except Exception:
+                    pass
+            return "\n".join(desc)
         except Exception:
             pass
         return ""
