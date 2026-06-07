@@ -193,7 +193,7 @@ def get_tools_schema():
 
 def execute_tool(tool_name, **kwargs):
     """
-    执行工具函数 - 先查技能系统，再查MCP工具
+    执行工具函数 - 先查MCP工具，再查技能编排
 
     Args:
         tool_name: 工具名称
@@ -202,21 +202,38 @@ def execute_tool(tool_name, **kwargs):
     Returns:
         工具执行结果
     """
+    # 1. 技能调用（skill_ 前缀）
+    if tool_name.startswith("skill_"):
+        skill_name = tool_name[6:]  # 去掉 "skill_" 前缀
+        try:
+            from ..skills import get_skill_registry
+            skill_registry = get_skill_registry()
+            skill = skill_registry.get_skill(skill_name)
+            if skill:
+                task = kwargs.get("task", "")
+                # 返回技能的完整提示词，让LLM基于此继续推理
+                prompt = skill.get_full_prompt()
+                return f"[启动技能: {skill.name}]\n{prompt}\n\n用户任务: {task}"
+        except Exception:
+            pass
+        return f"未知技能: {skill_name}"
+
+    # 2. MCP工具（内置）
     try:
-        # 1. 先尝试技能系统
-        from ..skills import get_skill_registry
-        skill_registry = get_skill_registry()
-        result = skill_registry.execute(tool_name, **kwargs)
-        if result.get("success"):
-            return str(result.get("result", ""))
+        from ..mcp import get_mcp_client
+        client = get_mcp_client()
+        tools = client.list_tools()
+        tool_names = [t.get("name") for t in tools]
+        if tool_name in tool_names:
+            result = client.call_tool(tool_name, kwargs)
+            return str(result) if result else "工具执行完成"
     except Exception:
         pass
 
-    # 2. 再尝试MCP工具
+    # 3. 外部MCP工具
     try:
-        from ..mcp_client import get_mcp_client
-        client = get_mcp_client()
-        # 遍历所有MCP服务器查找工具
+        from ..mcp_client import get_mcp_client as get_ext_client
+        client = get_ext_client()
         for server_name in client.servers:
             try:
                 tools = client.list_tools(server_name)

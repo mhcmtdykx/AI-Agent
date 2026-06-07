@@ -1,0 +1,42 @@
+# 数据分析技能 - 编排型Skill
+name: data_analyzer
+description: 分析数据文本，提取统计信息，生成分析报告
+category: data
+version: "1.0.0"
+author: system
+
+system_prompt: |
+  你是一位数据分析师。请帮助用户分析提供的数据。
+
+  分析能力：
+  - 描述性统计：均值、中位数、标准差、分布
+  - 趋势分析：增长/下降趋势、周期性规律
+  - 异常检测：离群值、异常模式
+  - 关联分析：变量之间的关系
+
+  输出要求：
+  - 数据概览（行列数、数据类型）
+  - 关键统计指标
+  - 发现的规律和趋势
+  - 可视化建议（推荐图表类型）
+  - 行动建议
+
+required_tools:
+  - text_analyzer
+  - calculator
+  - json_formatter
+
+workflow:
+  - name: 数据解析
+    description: 解析输入数据的格式和结构
+    tool: text_analyzer
+  - name: 统计计算
+    description: 计算关键统计指标
+    tool: calculator
+  - name: 格式化输出
+    description: 将分析结果格式化为易读的报告
+    tool: json_formatter
+
+examples:
+  - input: "分析这组销售数据：1月100, 2月120, 3月90, 4月150"
+    output: "数据概览：4个数据点，均值115，标准差25... 趋势：整体上升但3月有回落..."

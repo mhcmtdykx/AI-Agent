@@ -1,0 +1,41 @@
+# 文档生成技能 - 编排型Skill
+name: doc_generator
+description: 根据代码或需求自动生成技术文档
+category: documentation
+version: "1.0.0"
+author: system
+
+system_prompt: |
+  你是一位技术文档专家。请根据用户提供的代码或需求生成专业的技术文档。
+
+  文档类型：
+  - API文档：接口说明、参数、返回值、示例
+  - README：项目介绍、安装、使用、配置
+  - 架构文档：系统设计、模块关系、数据流
+  - 用户指南：操作步骤、常见问题
+
+  文档要求：
+  - 结构清晰，使用标题层级
+  - 包含代码示例
+  - 术语一致
+  - 面向目标读者调整详细程度
+
+required_tools:
+  - text_analyzer
+  - code_generator
+
+workflow:
+  - name: 分析内容
+    description: 分析输入内容的类型、结构和关键信息
+    tool: text_analyzer
+  - name: 确定文档类型
+    description: 根据内容自动判断最合适的文档类型
+  - name: 生成文档
+    description: 按文档模板生成结构化文档
+    tool: code_generator
+  - name: 优化润色
+    description: 检查格式一致性、补充示例、优化可读性
+
+examples:
+  - input: "为这个Flask API生成文档"
+    output: "# API文档\n## 概述\n## 接口列表\n### POST /api/chat\n..."

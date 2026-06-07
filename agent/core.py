@@ -79,19 +79,31 @@ class Agent:
             print(f"保存对话历史失败: {e}")
     
     def _load_skills_tools(self):
-        """加载技能系统和MCP工具的schema"""
+        """加载MCP工具和技能编排的schema"""
         tools = []
-        # 1. 技能系统
+        # 1. MCP工具（原子操作）
         try:
-            skill_registry = get_skill_registry()
-            tools.extend(skill_registry.get_tools_schema())
-        except Exception as e:
-            print(f"加载技能工具失败: {e}")
-
-        # 2. MCP工具
-        try:
-            from .mcp_client import get_mcp_client
+            from .mcp import get_mcp_client
             client = get_mcp_client()
+            mcp_tools = client.list_tools()
+            if isinstance(mcp_tools, list):
+                for t in mcp_tools:
+                    tool_def = {
+                        "type": "function",
+                        "function": {
+                            "name": t.get("name", ""),
+                            "description": t.get("description", ""),
+                            "parameters": t.get("inputSchema", {"type": "object", "properties": {}})
+                        }
+                    }
+                    tools.append(tool_def)
+        except Exception:
+            pass
+
+        # 2. 外部MCP工具
+        try:
+            from .mcp_client import get_mcp_client as get_ext_client
+            client = get_ext_client()
             for server_name in client.servers:
                 try:
                     mcp_tools = client.list_tools(server_name)
@@ -108,6 +120,13 @@ class Agent:
                             tools.append(tool_def)
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+        # 3. 技能编排（上层能力）
+        try:
+            skill_registry = get_skill_registry()
+            tools.extend(skill_registry.get_tools_schema())
         except Exception:
             pass
 
@@ -566,11 +585,24 @@ Answer: [最终回答]
         return text
 
     def _get_mcp_tools_description(self):
-        """获取MCP工具描述"""
+        """获取所有MCP工具描述（内置+外部）"""
+        desc = []
+        # 1. 内置MCP工具
         try:
-            from .mcp_client import get_mcp_client
+            from .mcp import get_mcp_client
             client = get_mcp_client()
-            desc = []
+            tools = client.list_tools()
+            if isinstance(tools, list):
+                for t in tools:
+                    name = t.get("name", "")
+                    d = t.get("description", "")
+                    desc.append(f"- {name}: {d}")
+        except Exception:
+            pass
+        # 2. 外部MCP工具
+        try:
+            from .mcp_client import get_mcp_client as get_ext_client
+            client = get_ext_client()
             for server_name in client.servers:
                 try:
                     tools = client.list_tools(server_name)
@@ -581,10 +613,9 @@ Answer: [最终回答]
                             desc.append(f"- {name}: {d}")
                 except Exception:
                     pass
-            return "\n".join(desc)
         except Exception:
             pass
-        return ""
+        return "\n".join(desc)
 
     def chat(self, message):
         """

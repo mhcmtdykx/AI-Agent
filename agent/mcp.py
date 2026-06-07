@@ -439,76 +439,167 @@ class MCPClient:
 # ========== 默认MCP服务器 ==========
 
 def create_default_mcp_server() -> MCPServer:
-    """创建默认的MCP服务器"""
+    """创建默认的MCP服务器 - 注册所有内置工具"""
     server = MCPServer("ai-agent-tools", "1.0.0")
-    
-    # 注册工具
-    @server.tool(name="get_time", description="获取当前时间")
+
+    # ========== 基础工具 ==========
+
+    @server.tool(name="get_time", description="获取当前日期和时间")
     def get_time() -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    @server.tool(name="calculate", description="计算数学表达式")
-    def calculate(expression: str) -> str:
+
+    @server.tool(name="calculator", description="计算数学表达式，支持sqrt/sin/cos/log等")
+    def calculator(expression: str) -> str:
         try:
             import math
             safe_dict = {
                 "__builtins__": {},
                 "abs": abs, "round": round, "min": min, "max": max,
-                "sqrt": math.sqrt, "pi": math.pi, "e": math.e
+                "sum": sum, "pow": pow, "len": len, "int": int, "float": float,
+                "sqrt": math.sqrt, "sin": math.sin, "cos": math.cos,
+                "tan": math.tan, "log": math.log, "log10": math.log10,
+                "pi": math.pi, "e": math.e, "ceil": math.ceil, "floor": math.floor,
+                "factorial": math.factorial, "gcd": math.gcd,
             }
             result = eval(expression, safe_dict)
             return str(result)
         except Exception as e:
             return f"计算错误: {e}"
-    
-    @server.tool(name="text_analyze", description="分析文本信息")
-    def text_analyze(text: str) -> Dict:
+
+    @server.tool(name="text_analyzer", description="分析文本信息（字符数、单词数、行数、句子数）")
+    def text_analyzer(text: str) -> Dict:
+        chars = len(text)
+        words = len(text.split())
+        lines = text.count('\n') + 1
+        sentences = text.count('.') + text.count('!') + text.count('?')
+        chinese_chars = len([c for c in text if '\u4e00' <= c <= '\u9fff'])
         return {
-            "字符数": len(text),
-            "单词数": len(text.split()),
-            "行数": text.count('\n') + 1
+            "字符数": chars, "单词数": words, "行数": lines,
+            "句子数": max(sentences, 1), "中文字符数": chinese_chars
         }
-    
-    @server.tool(name="json_format", description="格式化JSON")
-    def json_format(json_str: str) -> str:
+
+    @server.tool(name="json_formatter", description="格式化和美化JSON字符串")
+    def json_formatter(json_str: str) -> str:
         try:
             data = json.loads(json_str)
             return json.dumps(data, indent=2, ensure_ascii=False)
         except Exception as e:
-            return f"JSON错误: {e}"
-    
+            return f"JSON格式错误: {e}"
+
+    # ========== 搜索与信息 ==========
+
+    @server.tool(name="web_search", description="搜索网络信息（DuckDuckGo即时回答API）")
+    def web_search(query: str, max_results: int = 5) -> str:
+        try:
+            import requests
+            url = "https://api.duckduckgo.com/"
+            params = {"q": query, "format": "json", "no_redirect": "1", "no_html": "1"}
+            headers = {"User-Agent": "Mozilla/5.0 (AI-Agent/1.0)"}
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                return f"搜索失败，状态码: {resp.status_code}"
+            data = resp.json()
+            results = []
+            abstract = data.get("AbstractText", "")
+            if abstract:
+                results.append(f"摘要: {abstract}")
+            for topic in data.get("RelatedTopics", [])[:max_results]:
+                if isinstance(topic, dict) and "Text" in topic:
+                    text = topic["Text"]
+                    first_url = topic.get("FirstURL", "")
+                    results.append(f"- {text}" + (f"\n  链接: {first_url}" if first_url else ""))
+            return "搜索结果:\n" + "\n".join(results) if results else f"未找到关于 '{query}' 的即时回答"
+        except Exception as e:
+            return f"搜索出错: {e}"
+
+    @server.tool(name="weather", description="查询指定城市的实时天气信息")
+    def weather(city: str) -> str:
+        try:
+            import requests
+            url = f"https://wttr.in/{city}?format=%C+%t+%h+%w&lang=zh"
+            resp = requests.get(url, headers={"User-Agent": "curl/7.68.0"}, timeout=10)
+            if resp.status_code == 200:
+                return f"{city}天气: {resp.text.strip()}"
+            return f"天气查询失败: HTTP {resp.status_code}"
+        except Exception as e:
+            return f"天气查询出错: {e}"
+
+    # ========== 文本处理 ==========
+
+    @server.tool(name="translator", description="翻译文本到指定语言（english/chinese/japanese/korean）")
+    def translator(text: str, target_language: str) -> str:
+        lang_map = {"english": "英文", "chinese": "中文", "japanese": "日文", "korean": "韩文"}
+        target = lang_map.get(target_language.lower(), target_language)
+        return f"[翻译请求] 将以下文本翻译为{target}:\n{text}\n(请使用LLM能力完成翻译)"
+
+    @server.tool(name="summarizer", description="总结长文本，提取关键信息")
+    def summarizer(text: str, max_length: int = 100) -> str:
+        if len(text) <= max_length:
+            return text
+        sentences = text.replace('。', '.').replace('！', '!').replace('？', '?').split('.')
+        summary = ''
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            if len(summary) + len(s) > max_length:
+                break
+            summary += s + '。'
+        return summary or text[:max_length] + '...'
+
+    # ========== 代码与创意 ==========
+
+    @server.tool(name="code_generator", description="根据描述生成代码片段")
+    def code_generator(language: str, description: str) -> str:
+        return f"[代码生成请求] 语言: {language}\n需求: {description}\n(请使用LLM能力生成代码)"
+
+    @server.tool(name="diagram_generator", description="生成Mermaid图表代码（流程图/思维导图/时序图）")
+    def diagram_generator(title: str, content: str, diagram_type: str = "flowchart") -> str:
+        try:
+            if diagram_type == "flowchart":
+                lines = content.split('\n')
+                mermaid = "graph TD\n"
+                for i, line in enumerate(lines):
+                    line = line.strip()
+                    if line:
+                        node_id = f"A{i}"
+                        mermaid += f"    {node_id}[\"{line}\"]\n"
+                        if i > 0:
+                            mermaid += f"    A{i-1} --> {node_id}\n"
+            elif diagram_type == "mindmap":
+                mermaid = f"mindmap\n  root(({title}))\n"
+                for line in content.split('\n'):
+                    line = line.strip()
+                    if line:
+                        mermaid += f"    {line}\n"
+            else:
+                mermaid = f"sequenceDiagram\n    participant U as 用户\n    participant A as 系统\n"
+                for line in content.split('\n'):
+                    line = line.strip()
+                    if line:
+                        mermaid += f"    U->>A: {line}\n"
+            return mermaid
+        except Exception as e:
+            return f"图表生成错误: {e}"
+
     # 注册资源
     def get_system_info() -> str:
         return json.dumps({
-            "系统": "AI Agent",
-            "版本": "1.0.0",
-            "状态": "运行中"
+            "系统": "AI Agent", "版本": "1.0.0", "状态": "运行中",
+            "工具数": len(server.tools), "资源数": len(server.resources)
         }, ensure_ascii=False)
-    
+
     server.register_resource(
-        uri="agent://system/info",
-        name="系统信息",
-        description="获取系统基本信息",
-        handler=get_system_info
+        uri="agent://system/info", name="系统信息",
+        description="获取系统基本信息", handler=get_system_info
     )
-    
+
     # 注册提示
-    server.register_prompt(
-        name="code_review",
-        description="代码审查提示",
-        arguments=[
-            {"name": "code", "description": "要审查的代码", "required": True}
-        ]
-    )
-    
-    server.register_prompt(
-        name="summarize",
-        description="文本总结提示",
-        arguments=[
-            {"name": "text", "description": "要总结的文本", "required": True}
-        ]
-    )
-    
+    server.register_prompt(name="code_review", description="代码审查提示",
+        arguments=[{"name": "code", "description": "要审查的代码", "required": True}])
+    server.register_prompt(name="summarize", description="文本总结提示",
+        arguments=[{"name": "text", "description": "要总结的文本", "required": True}])
+
     return server
 
 

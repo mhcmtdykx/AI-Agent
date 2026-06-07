@@ -114,9 +114,18 @@ def health():
 
 @app.route("/api/tools")
 def tools():
-    from agent.tools import TOOLS_REGISTRY
-    tools = [{"name": name, "description": info["description"]} for name, info in TOOLS_REGISTRY.items()]
-    return json.dumps(tools, ensure_ascii=False)
+    all_tools = []
+    # MCP内置工具
+    try:
+        from agent.mcp import get_mcp_client
+        client = get_mcp_client()
+        mcp_tools = client.list_tools()
+        if isinstance(mcp_tools, list):
+            for t in mcp_tools:
+                all_tools.append({"name": t.get("name", ""), "description": t.get("description", ""), "source": "mcp"})
+    except Exception:
+        pass
+    return json.dumps(all_tools, ensure_ascii=False)
 
 @app.route("/api/mode", methods=["GET", "POST"])
 def mode():

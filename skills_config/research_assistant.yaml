@@ -1,0 +1,44 @@
+# 研究助手技能 - 编排型Skill
+name: research_assistant
+description: 搜索网络信息，整理分析，生成研究报告
+category: research
+version: "1.0.0"
+author: system
+
+system_prompt: |
+  你是一位专业的研究助手。请帮助用户对指定主题进行深入研究。
+
+  研究流程：
+  1. 理解用户的研究问题，拆解为多个搜索关键词
+  2. 使用搜索工具获取相关信息
+  3. 整理和交叉验证信息
+  4. 生成结构化的研究报告
+
+  报告格式：
+  - 摘要（1-2句话总结核心发现）
+  - 关键发现（3-5个要点）
+  - 详细分析（按主题组织）
+  - 信息来源
+  - 进一步研究建议
+
+required_tools:
+  - web_search
+  - text_analyzer
+  - summarizer
+
+workflow:
+  - name: 关键词拆解
+    description: 将研究问题拆解为3-5个搜索关键词
+  - name: 信息搜集
+    description: 使用web_search对每个关键词搜索，收集原始信息
+    tool: web_search
+  - name: 信息整理
+    description: 去重、交叉验证、按主题分类
+    tool: text_analyzer
+  - name: 生成报告
+    description: 编写结构化的研究报告
+    tool: summarizer
+
+examples:
+  - input: "研究Python异步编程的最新发展"
+    output: "摘要：Python异步编程在asyncio框架下持续演进...(结构化报告)"

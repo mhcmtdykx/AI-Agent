@@ -1,102 +1,101 @@
 """
-Skills技能系统 - 配置驱动的模块化AI能力封装
-支持从YAML/JSON配置文件动态加载技能
+Skills技能系统 - LLM驱动的能力编排层
+
+架构：
+  Tools层（MCP）= 原子操作（calculator, web_search, text_analyzer...）
+  Skills层      = 能力编排（prompt模板 + 工具依赖 + 工作流）
+
+一个Skill不是直接执行代码，而是为LLM提供专业化的提示词和工具组合，
+让LLM自主编排多个工具来完成复杂任务。
 """
 import os
 import json
 import yaml
-import importlib
-import inspect
-from typing import Dict, List, Callable, Any, Optional
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass, field, asdict
 
 
 @dataclass
-class SkillParameter:
-    """技能参数定义"""
-    name: str
-    type: str  # string, integer, float, boolean, array, object
-    description: str
-    required: bool = True
-    default: Any = None
-    
+class WorkflowStep:
+    """工作流步骤"""
+    name: str              # 步骤名称
+    description: str       # 步骤描述
+    tool: str = ""         # 使用的工具名（可选，空表示LLM推理）
+    prompt: str = ""       # 步骤提示词
+
     def to_dict(self):
         return asdict(self)
 
 
 @dataclass
 class Skill:
-    """技能定义"""
+    """技能定义 - LLM驱动的能力编排"""
     name: str
     description: str
-    category: str  # general, search, code, data, communication
-    execute_func: Callable
-    parameters: List[SkillParameter]
+    category: str
+    system_prompt: str                        # 给LLM的专业化提示词
+    required_tools: List[str] = field(default_factory=list)  # 依赖的MCP工具
+    workflow: List[WorkflowStep] = field(default_factory=list)  # 可选工作流
+    examples: List[Dict] = field(default_factory=list)  # 示例输入输出
     version: str = "1.0.0"
     author: str = "system"
     enabled: bool = True
-    config_source: str = None  # 配置文件来源
-    
+    config_source: str = None
+
     def to_dict(self):
         return {
             "name": self.name,
             "description": self.description,
             "category": self.category,
-            "parameters": [p.to_dict() for p in self.parameters],
+            "system_prompt": self.system_prompt[:200] + "..." if len(self.system_prompt) > 200 else self.system_prompt,
+            "required_tools": self.required_tools,
+            "workflow": [s.to_dict() for s in self.workflow],
+            "examples": self.examples[:2],
             "version": self.version,
             "author": self.author,
             "enabled": self.enabled,
-            "config_source": self.config_source
+            "config_source": self.config_source,
         }
-    
-    def to_openai_function(self):
-        """转换为OpenAI Function Calling格式"""
-        properties = {}
-        required = []
-        
-        for param in self.parameters:
-            prop = {
-                "type": param.type,
-                "description": param.description
-            }
-            if param.default is not None:
-                prop["default"] = param.default
-            properties[param.name] = prop
-            
-            if param.required:
-                required.append(param.name)
-        
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required
-                }
-            }
-        }
+
+    def get_full_prompt(self, available_tools_desc: str = "") -> str:
+        """生成完整的技能提示词（system_prompt + 工具描述 + 工作流）"""
+        parts = [self.system_prompt]
+
+        if self.required_tools and available_tools_desc:
+            parts.append(f"\n可用工具:\n{available_tools_desc}")
+
+        if self.workflow:
+            parts.append("\n工作流程:")
+            for i, step in enumerate(self.workflow, 1):
+                tool_hint = f" (使用 {step.tool})" if step.tool else " (LLM推理)"
+                parts.append(f"  {i}. {step.name}{tool_hint}: {step.description}")
+                if step.prompt:
+                    parts.append(f"     提示: {step.prompt}")
+
+        if self.examples:
+            parts.append("\n示例:")
+            for ex in self.examples[:2]:
+                parts.append(f"  输入: {ex.get('input', '')}")
+                parts.append(f"  输出: {ex.get('output', '')}")
+
+        return "\n".join(parts)
 
 
 class SkillRegistry:
     """技能注册表"""
-    
+
     def __init__(self):
         self.skills: Dict[str, Skill] = {}
         self.categories: Dict[str, List[str]] = {}
-    
+
     def register(self, skill: Skill):
         """注册技能"""
         self.skills[skill.name] = skill
-        
         if skill.category not in self.categories:
             self.categories[skill.category] = []
         if skill.name not in self.categories[skill.category]:
             self.categories[skill.category].append(skill.name)
-    
+
     def unregister(self, skill_name: str):
         """注销技能"""
         if skill_name in self.skills:
@@ -104,11 +103,11 @@ class SkillRegistry:
             if skill.category in self.categories:
                 self.categories[skill.category].remove(skill_name)
             del self.skills[skill_name]
-    
+
     def get_skill(self, skill_name: str) -> Optional[Skill]:
         """获取技能"""
         return self.skills.get(skill_name)
-    
+
     def list_skills(self, category: str = None, enabled_only: bool = True) -> List[Dict]:
         """列出技能"""
         skills = []
@@ -119,63 +118,43 @@ class SkillRegistry:
                 continue
             skills.append(skill.to_dict())
         return skills
-    
+
     def get_categories(self) -> List[str]:
         """获取所有分类"""
         return list(self.categories.keys())
-    
-    def execute(self, skill_name: str, **kwargs) -> Any:
-        """执行技能"""
-        skill = self.get_skill(skill_name)
-        if not skill:
-            return {"error": f"技能不存在: {skill_name}"}
-        
-        if not skill.enabled:
-            return {"error": f"技能已禁用: {skill_name}"}
-        
-        try:
-            # 验证参数
-            validated_args = self._validate_parameters(skill, kwargs)
-            result = skill.execute_func(**validated_args)
-            return {"success": True, "result": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-    
-    def _validate_parameters(self, skill: Skill, args: Dict) -> Dict:
-        """验证参数"""
-        validated = {}
-        
-        for param in skill.parameters:
-            if param.name in args:
-                value = args[param.name]
-                # 简单类型验证
-                if param.type == "integer":
-                    validated[param.name] = int(value)
-                elif param.type == "float" or param.type == "number":
-                    validated[param.name] = float(value)
-                elif param.type == "boolean":
-                    validated[param.name] = bool(value)
-                else:
-                    validated[param.name] = value
-            elif param.required:
-                if param.default is not None:
-                    validated[param.name] = param.default
-                else:
-                    raise ValueError(f"缺少必需参数: {param.name}")
-            elif param.default is not None:
-                validated[param.name] = param.default
-        
-        return validated
-    
+
     def get_tools_schema(self) -> List[Dict]:
-        """获取所有技能的OpenAI工具模式"""
-        return [skill.to_openai_function() for skill in self.skills.values() if skill.enabled]
-    
+        """获取技能的OpenAI工具模式（每个技能作为一个可调用工具）"""
+        schemas = []
+        for skill in self.skills.values():
+            if not skill.enabled:
+                continue
+            # 每个Skill本身作为一个function calling工具
+            # 参数是用户输入的自然语言任务描述
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": f"skill_{skill.name}",
+                    "description": f"[技能] {skill.description}",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task": {
+                                "type": "string",
+                                "description": "任务描述或用户输入"
+                            }
+                        },
+                        "required": ["task"]
+                    }
+                }
+            })
+        return schemas
+
     def enable_skill(self, skill_name: str):
         """启用技能"""
         if skill_name in self.skills:
             self.skills[skill_name].enabled = True
-    
+
     def disable_skill(self, skill_name: str):
         """禁用技能"""
         if skill_name in self.skills:
@@ -184,21 +163,20 @@ class SkillRegistry:
 
 class ConfigSkillLoader:
     """配置驱动的技能加载器"""
-    
+
     def __init__(self, config_dir: str = "skills_config"):
         self.config_dir = config_dir
-        self.loaded_configs: Dict[str, Dict] = {}
-    
+
     def load_from_directory(self, directory: str = None) -> List[Skill]:
         """从目录加载所有技能配置"""
         config_dir = directory or self.config_dir
         skills = []
-        
+
         if not os.path.exists(config_dir):
-            print(f"配置目录不存在: {config_dir}")
+            print(f"技能配置目录不存在: {config_dir}")
             return skills
-        
-        for filename in os.listdir(config_dir):
+
+        for filename in sorted(os.listdir(config_dir)):
             if filename.endswith(('.yaml', '.yml', '.json')):
                 filepath = os.path.join(config_dir, filename)
                 try:
@@ -207,9 +185,9 @@ class ConfigSkillLoader:
                         skills.append(skill)
                 except Exception as e:
                     print(f"加载技能配置失败 {filename}: {e}")
-        
+
         return skills
-    
+
     def load_from_file(self, filepath: str) -> Optional[Skill]:
         """从文件加载单个技能配置"""
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -217,260 +195,77 @@ class ConfigSkillLoader:
                 config = json.load(f)
             else:
                 config = yaml.safe_load(f)
-        
+
+        if not config:
+            return None
+
         return self._create_skill_from_config(config, filepath)
-    
-    def load_from_config(self, config: Dict) -> Optional[Skill]:
-        """从配置字典创建技能"""
-        return self._create_skill_from_config(config)
-    
+
     def _create_skill_from_config(self, config: Dict, filepath: str = None) -> Optional[Skill]:
         """从配置创建技能对象"""
         name = config.get('name')
         if not name:
             raise ValueError("配置缺少name字段")
-        
-        # 解析参数
-        parameters = []
-        for param_config in config.get('parameters', []):
-            param = SkillParameter(
-                name=param_config['name'],
-                type=param_config.get('type', 'string'),
-                description=param_config.get('description', ''),
-                required=param_config.get('required', True),
-                default=param_config.get('default')
+
+        # 解析工作流步骤
+        workflow = []
+        for step_config in config.get('workflow', []):
+            step = WorkflowStep(
+                name=step_config.get('name', ''),
+                description=step_config.get('description', ''),
+                tool=step_config.get('tool', ''),
+                prompt=step_config.get('prompt', ''),
             )
-            parameters.append(param)
-        
-        # 根据实现类型创建执行函数
-        impl = config.get('implementation', {})
-        execute_func = self._create_execute_function(impl, name)
-        
+            workflow.append(step)
+
+        # 解析示例
+        examples = config.get('examples', [])
+
         skill = Skill(
             name=name,
             description=config.get('description', ''),
             category=config.get('category', 'general'),
-            execute_func=execute_func,
-            parameters=parameters,
+            system_prompt=config.get('system_prompt', config.get('description', '')),
+            required_tools=config.get('required_tools', []),
+            workflow=workflow,
+            examples=examples,
             version=config.get('version', '1.0.0'),
             author=config.get('author', 'system'),
-            config_source=filepath
+            config_source=filepath,
         )
-        
-        self.loaded_configs[name] = config
+
         return skill
-    
-    def _create_execute_function(self, impl: Dict, skill_name: str) -> Callable:
-        """根据实现配置创建执行函数"""
-        impl_type = impl.get('type', 'script')
-        
-        if impl_type == 'script':
-            return self._create_script_function(impl)
-        elif impl_type == 'api':
-            return self._create_api_function(impl)
-        elif impl_type == 'llm':
-            return self._create_llm_function(impl)
-        else:
-            raise ValueError(f"不支持的实现类型: {impl_type}")
-    
-    # 允许从 YAML 脚本中导入的安全模块白名单
-    _SAFE_MODULES = frozenset({
-        'math', 'json', 're', 'datetime', 'collections', 'itertools',
-        'functools', 'operator', 'string', 'textwrap', 'hashlib',
-        'base64', 'random', 'statistics', 'decimal', 'fractions',
-        'ast', 'copy', 'pprint', 'typing', 'dataclasses',
-        'requests', 'urllib', 'http',
-    })
-
-    def _create_script_function(self, impl: Dict) -> Callable:
-        """创建脚本类型的执行函数（受限沙箱执行）"""
-        code = impl.get('code', '')
-        language = impl.get('language', 'python')
-
-        if language != 'python':
-            raise ValueError(f"目前只支持Python脚本: {language}")
-
-        # 构建受限内置函数：禁止危险操作，但允许受控的 __import__
-        if isinstance(__builtins__, dict):
-            safe_builtins = {k: v for k, v in __builtins__.items()
-                            if not k.startswith('_') and k not in (
-                                'eval', 'exec', 'compile', 'open',
-                                'breakpoint', 'exit', 'quit', 'globals', 'locals',
-                            )}
-        else:
-            safe_builtins = {k: getattr(__builtins__, k) for k in dir(__builtins__)
-                            if not k.startswith('_') and k not in (
-                                'eval', 'exec', 'compile', 'open',
-                                'breakpoint', 'exit', 'quit', 'globals', 'locals',
-                            )}
-
-        # 提供受控的 __import__，只允许白名单模块
-        _allowed = self._SAFE_MODULES
-        def _safe_import(name, *args, **kwargs):
-            top = name.split('.')[0]
-            if top not in _allowed:
-                raise ImportError(f"不允许导入模块: {name}")
-            return __import__(name, *args, **kwargs)
-
-        safe_builtins['__import__'] = _safe_import
-
-        namespace = {"__builtins__": safe_builtins}
-        exec(code, namespace)
-
-        if 'execute' not in namespace:
-            raise ValueError("脚本必须定义execute函数")
-
-        return namespace['execute']
-    
-    def _create_api_function(self, impl: Dict) -> Callable:
-        """创建API类型的执行函数"""
-        import requests
-        
-        endpoint = impl.get('endpoint', '')
-        method = impl.get('method', 'POST').upper()
-        headers = impl.get('headers', {})
-        body_template = impl.get('body_template', '{}')
-        response_path = impl.get('response_path', '')
-        
-        # 检查是否有备用实现
-        fallback = impl.get('fallback')
-        fallback_func = None
-        if fallback:
-            fallback_func = self._create_script_function(fallback)
-        
-        def execute(**kwargs):
-            try:
-                # 渲染请求体模板
-                body_str = body_template
-                for key, value in kwargs.items():
-                    body_str = body_str.replace('{{' + key + '}}', str(value))
-                
-                body = json.loads(body_str)
-                
-                # 发送请求
-                if method == 'GET':
-                    response = requests.get(endpoint, headers=headers, params=body, timeout=10)
-                else:
-                    response = requests.post(endpoint, headers=headers, json=body, timeout=10)
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                # 提取响应数据
-                if response_path:
-                    for key in response_path.split('.'):
-                        result = result.get(key, {})
-                
-                return result
-            except Exception as e:
-                # 使用备用实现
-                if fallback_func:
-                    return fallback_func(**kwargs)
-                return f"API调用失败: {str(e)}"
-        
-        return execute
-    
-    def _create_llm_function(self, impl: Dict) -> Callable:
-        """创建LLM类型的执行函数（调用 OpenAI API）"""
-        import os
-        prompt_template = impl.get('prompt_template', '')
-        model = impl.get('model', os.getenv('MODEL_NAME', 'gpt-3.5-turbo'))
-
-        def execute(**kwargs):
-            import requests
-            # 渲染提示模板
-            prompt = prompt_template
-            for key, value in kwargs.items():
-                prompt = prompt.replace('{{' + key + '}}', str(value))
-
-            api_key = os.getenv('OPENAI_API_KEY', '')
-            base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1').rstrip('/')
-            if not api_key:
-                return f"[LLM未配置API密钥] 提示词: {prompt}"
-
-            try:
-                resp = requests.post(
-                    f"{base_url}/chat/completions",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {api_key}",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                    },
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
-            except Exception as e:
-                return f"[LLM调用失败] {e}"
-
-        return execute
 
 
-# ========== 内置技能（兼容旧版本） ==========
-
-def get_current_time() -> str:
-    """获取当前时间"""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# 创建全局技能注册表
+# ========== 全局实例 ==========
 skill_registry = SkillRegistry()
 config_loader = ConfigSkillLoader()
+
 
 def register_default_skills():
     """注册默认技能（从配置文件加载）"""
     skills = config_loader.load_from_directory()
     for skill in skills:
         skill_registry.register(skill)
-    
-    # 如果没有配置文件，注册内置技能
-    if not skills:
-        _register_builtin_skills()
+    print(f"已加载 {len(skills)} 个技能: {[s.name for s in skills]}")
 
-def _register_builtin_skills():
-    """注册内置技能（备用）"""
-    from .tools.basic_tools import calculator as safe_calculator
-    
-    builtin_skills = [
-        Skill(
-            name="get_current_time",
-            description="获取当前时间",
-            category="general",
-            execute_func=get_current_time,
-            parameters=[]
-        ),
-        Skill(
-            name="calculator",
-            description="计算数学表达式",
-            category="data",
-            execute_func=safe_calculator,
-            parameters=[
-                SkillParameter("expression", "string", "数学表达式")
-            ]
-        )
-    ]
-    
-    for skill in builtin_skills:
-        skill_registry.register(skill)
 
-# 注册技能
+# 模块加载时自动注册技能
 register_default_skills()
 
 
+def reload_skills():
+    """重新加载技能"""
+    skill_registry.skills.clear()
+    skill_registry.categories.clear()
+    register_default_skills()
+
+
 def get_skill_registry() -> SkillRegistry:
-    """获取技能注册表"""
+    """获取全局技能注册表"""
     return skill_registry
+
 
 def get_config_loader() -> ConfigSkillLoader:
     """获取配置加载器"""
     return config_loader
-
-def reload_skills():
-    """重新加载所有技能"""
-    skill_registry.skills.clear()
-    skill_registry.categories.clear()
-    register_default_skills()
