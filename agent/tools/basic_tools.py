@@ -193,7 +193,7 @@ def get_tools_schema():
 
 def execute_tool(tool_name, **kwargs):
     """
-    执行工具函数 - 只使用技能系统
+    执行工具函数 - 先查技能系统，再查MCP工具
 
     Args:
         tool_name: 工具名称
@@ -203,12 +203,30 @@ def execute_tool(tool_name, **kwargs):
         工具执行结果
     """
     try:
+        # 1. 先尝试技能系统
         from ..skills import get_skill_registry
         skill_registry = get_skill_registry()
         result = skill_registry.execute(tool_name, **kwargs)
         if result.get("success"):
             return str(result.get("result", ""))
-        else:
-            return f"未知工具: {tool_name}"
-    except Exception as e:
-        return f"工具执行错误: {e}"
+    except Exception:
+        pass
+
+    # 2. 再尝试MCP工具
+    try:
+        from ..mcp_client import get_mcp_client
+        client = get_mcp_client()
+        mcp_result = client.call_tool(tool_name, kwargs)
+        if mcp_result and not mcp_result.get("error"):
+            # MCP返回格式可能是 {"content": [{"text": "..."}]} 或直接字符串
+            if isinstance(mcp_result, dict):
+                content = mcp_result.get("content", [])
+                if isinstance(content, list) and content:
+                    texts = [item.get("text", str(item)) for item in content if isinstance(item, dict)]
+                    return "\n".join(texts) if texts else str(mcp_result)
+                return str(mcp_result.get("result", mcp_result))
+            return str(mcp_result)
+    except Exception:
+        pass
+
+    return f"未知工具: {tool_name}"

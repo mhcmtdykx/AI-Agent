@@ -13,10 +13,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0c0c0e;--bg2:#131316;--bg3:#1a1a1f;--bg4:#222228;--accent:#c45a3c;--accent-l:#d97a5f;--accent-g:rgba(196,90,60,.25);--sage:#6b7c5f;--sage-l:#8a9e7a;--t1:#e8e0d4;--t2:#9a9088;--t3:#5a544e;--bdr:rgba(232,224,212,.06);--bdr2:rgba(196,90,60,.15);--r1:8px;--r2:14px;--fd:'Playfair Display','Noto Serif SC',Georgia,serif;--fb:'Outfit','Noto Sans SC',system-ui,sans-serif;--fm:'JetBrains Mono','SF Mono',monospace}
+body.light{--bg:#f5f1eb;--bg2:#faf7f2;--bg3:#ffffff;--bg4:#ece7df;--accent:#b84a2e;--accent-l:#c45a3c;--accent-g:rgba(184,74,46,.15);--sage:#5a6b4f;--sage-l:#6b7c5f;--t1:#2a2520;--t2:#6b6258;--t3:#9a9088;--bdr:rgba(42,37,32,.08);--bdr2:rgba(184,74,46,.2)}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%;overflow:hidden}
 body{font-family:var(--fb);background:var(--bg);color:var(--t1);font-weight:400;letter-spacing:.01em}
 .noise{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:256px}
+body.light .noise{opacity:.02}
 .diag{position:fixed;top:-50%;right:15%;width:1px;height:200%;z-index:0;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--bdr2),transparent);transform:rotate(25deg)}
 .app{display:flex;height:100vh;position:relative;z-index:1}
 /* Sidebar Nav */
@@ -416,8 +418,8 @@ const QUICK_COMMANDS=[
 ];
 
 window.onload=function(){loadChatHistory();loadTheme();initShortcuts();loadAllStats();checkHealth()};
-function loadTheme(){if(localStorage.getItem('theme')==='light'){isDarkTheme=false;document.body.classList.remove('dark-theme')}}
-function toggleTheme(){isDarkTheme=!isDarkTheme;document.body.classList.toggle('dark-theme');localStorage.setItem('theme',isDarkTheme?'dark':'light')}
+function loadTheme(){if(localStorage.getItem('theme')==='light'){isDarkTheme=false;document.body.classList.add('light')}}
+function toggleTheme(){isDarkTheme=!isDarkTheme;document.body.classList.toggle('light',!isDarkTheme);localStorage.setItem('theme',isDarkTheme?'dark':'light')}
 function initShortcuts(){document.addEventListener('keydown',function(e){if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'){if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();sendMessage()}return}const k=[];if(e.ctrlKey)k.push('ctrl');if(e.shiftKey)k.push('shift');if(e.altKey)k.push('alt');k.push(e.key.toLowerCase());const sk=k.join('+');if(shortcuts[sk]){e.preventDefault();shortcuts[sk]()}})}
 function escapeHtml(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 function switchPage(name){document.querySelectorAll('.ni').forEach(n=>n.classList.toggle('active',n.dataset.page===name));document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+name));if(name!=='chat')loadAllStats()}
@@ -434,14 +436,15 @@ function getReactLabel(t){return{thought:'思考',action:'行动',observation:'�
 async function sendMessage(){
   if(isStreaming){stopStreaming();return}
   const message=userInput.value.trim();if(!message&&!selectedFiles.length)return;
+  if(!currentChatId)createNewChat();
   const badges=getBadges();let dm=message;
   if(selectedFiles.length){const fn=selectedFiles.map(f=>f.name).join(', ');dm=message?message+'\n'+fn:fn}
   addMessage(dm,true);saveCurrentMessage(dm,true);userInput.value="";
   isStreaming=true;updateBtn();abortController=new AbortController();
   try{
     let opts={method:"POST",signal:abortController.signal};
-    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react','true');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
-    else{opts.headers={"Content-Type":"application/json"};opts.body=JSON.stringify({message,stream:true,react:true,rag:true,memory:true,multi_agent:false})}
+    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react','false');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
+    else{opts.headers={"Content-Type":"application/json"};opts.body=JSON.stringify({message,stream:true,react:false,rag:true,memory:true,multi_agent:false})}
     clearFiles();
     const resp=await fetch("/api/chat",opts);const reader=resp.body.getReader();const dec=new TextDecoder();let buf="",full="",reason="",aiDiv=null;
     {aiDiv=addMessage("",false,true,badges);let secs=[],ct="",done=false;

@@ -627,61 +627,24 @@ def chat():
                         for item in active_agent.chat_stream(enhanced_message):
                             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     else:
-                        messages = active_agent._build_messages(enhanced_message)
-
-                        headers = {
-                            "Content-Type": "application/json",
-                            "Authorization": f"Bearer {active_agent.api_key}",
-                        }
-
-                        api_data = {
-                            "model": active_agent.config.model_name,
-                            "messages": messages,
-                            "temperature": active_agent.config.temperature,
-                            "stream": True,
-                        }
-
-                        url = f"{active_agent.base_url.rstrip('/')}/chat/completions"
-                        response = http_requests.post(url, headers=headers, json=api_data, stream=True, timeout=60)
-                        
-                        full_reply = ""
-                        reasoning_content = ""
-                        
-                        for line in response.iter_lines():
-                            if line:
-                                line = line.decode("utf-8")
-                                if line.startswith("data: "):
-                                    line = line[6:]
-                                    if line.strip() == "[DONE]":
-                                        yield "data: [DONE]\n\n"
-                                        break
-                                    try:
-                                        chunk = json.loads(line)
-                                        choices = chunk.get("choices", [])
-                                        if not choices:
-                                            continue
-                                        delta = choices[0].get("delta", {})
-                                        if delta.get("reasoning_content"):
-                                            reasoning_content += delta["reasoning_content"]
-                                            yield f"data: {json.dumps({'reasoning': delta['reasoning_content']}, ensure_ascii=False)}\n\n"
-                                        if delta.get("content"):
-                                            content = delta["content"]
-                                            full_reply += content
-                                            yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
-                                    except (json.JSONDecodeError, IndexError, KeyError):
-                                        continue
-                        
-                        # 保存到对话历史
-                        final_reply = full_reply if full_reply else reasoning_content
-                        if final_reply:
-                            active_agent.chat_history.append({"role": "user", "content": message})
-                            active_agent.chat_history.append({"role": "assistant", "content": final_reply})
-                            
-                            # 保存到长期记忆
-                            if enable_memory:
-                                long_term_memory.add_conversation(message, final_reply)
+                        # 使用Agent.chat_stream()（支持function calling工具调用）
+                        for item in active_agent.chat_stream(enhanced_message):
+                            if isinstance(item, dict):
+                                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                            else:
+                                # 兼容旧格式（纯文本）
+                                yield f"data: {json.dumps({'content': item}, ensure_ascii=False)}\n\n"
                     
                     yield "data: [DONE]\n\n"
+                    
+                    # 保存到长期记忆
+                    if enable_memory:
+                        # 从agent获取最后的回复
+                        history = active_agent.get_chat_history()
+                        if len(history) >= 2:
+                            last_reply = history[-1].get("content", "")
+                            if last_reply:
+                                long_term_memory.add_conversation(message, last_reply)
                     
                 except Exception as e:
                     observability.error(f"聊天错误: {e}", "chat")

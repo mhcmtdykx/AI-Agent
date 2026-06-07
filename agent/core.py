@@ -79,13 +79,35 @@ class Agent:
             print(f"保存对话历史失败: {e}")
     
     def _load_skills_tools(self):
-        """加载技能系统的工具"""
+        """加载技能系统和MCP工具的schema"""
+        tools = []
+        # 1. 技能系统
         try:
             skill_registry = get_skill_registry()
-            return skill_registry.get_tools_schema()
+            tools.extend(skill_registry.get_tools_schema())
         except Exception as e:
             print(f"加载技能工具失败: {e}")
-            return []
+
+        # 2. MCP工具
+        try:
+            from .mcp_client import get_mcp_client
+            client = get_mcp_client()
+            mcp_tools = client.list_tools()
+            if isinstance(mcp_tools, dict) and "tools" in mcp_tools:
+                for t in mcp_tools["tools"]:
+                    tool_def = {
+                        "type": "function",
+                        "function": {
+                            "name": t.get("name", ""),
+                            "description": t.get("description", ""),
+                            "parameters": t.get("inputSchema", {"type": "object", "properties": {}})
+                        }
+                    }
+                    tools.append(tool_def)
+        except Exception:
+            pass
+
+        return tools
 
     def _get_default_system_prompt(self):
         """获取默认系统提示词"""
@@ -118,8 +140,8 @@ class Agent:
             "stream": stream,
         }
 
-        if self.tools_schema and not stream:
-            # 使用新的tools格式
+        if self.tools_schema:
+            # 使用新的tools格式（流式和非流式都支持）
             data["tools"] = self.tools_schema
             data["tool_choice"] = "auto"
 
@@ -227,44 +249,113 @@ class Agent:
 
     def chat_stream(self, message):
         """
-        与Agent流式对话
+        与Agent流式对话（支持function calling工具调用）
 
         Args:
             message: 用户消息
 
         Yields:
-            Agent回复的片段
+            包含type和content的字典，或纯文本片段
         """
         try:
             messages = self._build_messages(message)
-            full_reply = ""
+            max_iterations = self.config.max_iterations
 
-            response = self._call_api(messages, stream=True)
+            for iteration in range(max_iterations):
+                response = self._call_api(messages, stream=True)
+                full_reply = ""
+                tool_calls_map = {}
+                has_tool_calls = False
+                had_previous_tools = (iteration > 0)  # 是否有前几轮的工具调用
 
-            for line in response.iter_lines():
-                if line:
+                for line in response.iter_lines():
+                    if not line:
+                        continue
                     line = line.decode("utf-8")
-                    if line.startswith("data: "):
-                        line = line[6:]
-                        if line.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(line)
-                            delta = chunk["choices"][0].get("delta", {})
-                            if delta.get("content"):
-                                content = delta["content"]
-                                full_reply += content
-                                yield content
-                        except json.JSONDecodeError:
-                            continue
+                    if not line.startswith("data: "):
+                        continue
+                    line = line[6:]
+                    if line.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(line)
+                        delta = chunk["choices"][0].get("delta", {})
 
-            # 保存到对话历史
-            self.chat_history.append({"role": "user", "content": message})
-            self.chat_history.append({"role": "assistant", "content": full_reply})
-            self._save_history()
+                        # 处理文本内容
+                        if delta.get("content"):
+                            content = delta["content"]
+                            full_reply += content
+                            yield {"content": content}
+
+                        # 处理工具调用（流式增量）
+                        if delta.get("tool_calls"):
+                            has_tool_calls = True
+                            for tc_delta in delta["tool_calls"]:
+                                idx = tc_delta.get("index", 0)
+                                if idx not in tool_calls_map:
+                                    tool_calls_map[idx] = {"id": "", "name": "", "arguments": ""}
+                                if tc_delta.get("id"):
+                                    tool_calls_map[idx]["id"] = tc_delta["id"]
+                                func = tc_delta.get("function", {})
+                                if func.get("name"):
+                                    tool_calls_map[idx]["name"] = func["name"]
+                                if func.get("arguments"):
+                                    tool_calls_map[idx]["arguments"] += func["arguments"]
+                    except json.JSONDecodeError:
+                        continue
+
+                # 如果有工具调用，执行它们
+                if has_tool_calls and tool_calls_map:
+                    # 构建 assistant 消息（包含 tool_calls）
+                    assistant_msg = {"role": "assistant", "content": full_reply or None, "tool_calls": []}
+                    for idx in sorted(tool_calls_map.keys()):
+                        tc = tool_calls_map[idx]
+                        assistant_msg["tool_calls"].append({
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {"name": tc["name"], "arguments": tc["arguments"]}
+                        })
+                    messages.append(assistant_msg)
+
+                    # 执行每个工具调用
+                    for idx in sorted(tool_calls_map.keys()):
+                        tc = tool_calls_map[idx]
+                        tool_name = tc["name"]
+                        try:
+                            args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        except json.JSONDecodeError:
+                            args = {}
+
+                        tool_result = execute_tool(tool_name, **args)
+
+                        # 输出工具调用信息给前端
+                        yield {"type": "action", "content": f"调用工具 {tool_name}({args})"}
+                        yield {"type": "observation", "content": str(tool_result)}
+
+                        # 添加工具结果到消息
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"] or f"call_{tool_name}",
+                            "content": str(tool_result)
+                        })
+
+                    # 继续下一轮迭代，让 LLM 基于工具结果生成回复
+                    continue
+
+                # 没有工具调用，这是最终回复
+                if had_previous_tools and full_reply:
+                    # 如果之前有工具调用，将最终回复标记为answer
+                    yield {"type": "answer", "content": full_reply}
+                self.chat_history.append({"role": "user", "content": message})
+                self.chat_history.append({"role": "assistant", "content": full_reply})
+                self._save_history()
+                return
+
+            # 达到最大迭代次数
+            yield {"content": "\n\n达到最大迭代次数，请重试"}
 
         except Exception as e:
-            yield f"抱歉，处理您的请求时出现了错误: {e}"
+            yield {"content": f"抱歉，处理您的请求时出现了错误: {e}"}
 
     def clear_memory(self):
         """清除对话历史"""
@@ -369,7 +460,7 @@ Answer: [最终回答]
         """构建ReAct系统提示词"""
         tools_desc = []
         
-        # 只加载技能系统描述
+        # 加载技能系统描述
         try:
             skill_registry = get_skill_registry()
             for skill in skill_registry.list_skills():
@@ -377,7 +468,12 @@ Answer: [最终回答]
         except Exception:
             pass
         
-        tools_description = "\n".join(tools_desc)
+        # 加载MCP工具描述
+        mcp_desc = self._get_mcp_tools_description()
+        if mcp_desc:
+            tools_desc.append(mcp_desc)
+        
+        tools_description = "\n".join(tools_desc) if tools_desc else "暂无可用工具"
         return self.REACT_PROMPT.format(tools_description=tools_description)
 
     def _build_messages(self, user_message):
@@ -414,35 +510,73 @@ Answer: [最终回答]
         return response
 
     def _parse_action(self, text):
-        """解析Action和Action Input"""
+        """解析Action和Action Input（增强版，支持多行JSON）"""
         import re
-        
-        # 提取Action
-        action_match = re.search(r"Action:\s*(\w+)", text)
+
+        # 提取Action名称
+        action_match = re.search(r"Action\s*:\s*(\w+)", text)
         if not action_match:
             return None, {}
-        
+
         tool_name = action_match.group(1)
-        
-        # 提取Action Input
-        input_match = re.search(r"Action Input:\s*(\{[^}]+\})", text)
+
+        # 提取Action Input（支持多行JSON）
+        input_match = re.search(r"Action\s*Input\s*:\s*(\{[\s\S]*?\})(?:\s*$|\s*(?:Thought|Action|Observation|Answer)\s*:)", text)
+        if not input_match:
+            # 回退：尝试匹配单行JSON
+            input_match = re.search(r"Action\s*Input\s*:\s*(\{[^}]+\})", text)
+        if not input_match:
+            # 再次回退：匹配到最后一个}
+            input_match = re.search(r"Action\s*Input\s*:\s*(\{[\s\S]*\})", text)
+            if input_match:
+                # 贪婪匹配，尝试找到最后一个完整的JSON
+                raw = input_match.group(1)
+                # 尝试从左到右找到第一个合法JSON
+                depth = 0
+                end = 0
+                for i, c in enumerate(raw):
+                    if c == '{': depth += 1
+                    elif c == '}': depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+                if end > 0:
+                    input_match = type('Match', (), {'group': lambda self, n: raw[:end]})()
+
         if input_match:
             try:
                 args = json.loads(input_match.group(1))
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, AttributeError):
                 args = {}
         else:
             args = {}
-        
+
         return tool_name, args
 
     def _extract_answer(self, text):
         """提取Answer部分"""
         import re
-        answer_match = re.search(r"Answer:\s*(.+)", text, re.DOTALL)
+        answer_match = re.search(r"Answer\s*:\s*(.+)", text, re.DOTALL)
         if answer_match:
             return answer_match.group(1).strip()
         return text
+
+    def _get_mcp_tools_description(self):
+        """获取MCP工具描述"""
+        try:
+            from .mcp_client import get_mcp_client
+            client = get_mcp_client()
+            tools = client.list_tools()
+            if isinstance(tools, dict) and "tools" in tools:
+                desc = []
+                for t in tools["tools"]:
+                    name = t.get("name", "")
+                    d = t.get("description", "")
+                    desc.append(f"- {name}: {d}")
+                return "\n".join(desc)
+        except Exception:
+            pass
+        return ""
 
     def chat(self, message):
         """
