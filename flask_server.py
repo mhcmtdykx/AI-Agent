@@ -20,6 +20,7 @@ from agent import (
     get_evaluation_system, get_observability_system,
     get_skill_registry, get_mcp_server, get_mcp_client
 )
+from agent.auth import get_user_manager
 import requests as http_requests
 
 app = Flask(__name__)
@@ -101,6 +102,49 @@ def set_session_cookie(response):
 @app.route("/")
 def index():
     return send_file("index.html")
+
+
+# ========== Auth API ==========
+@app.route("/api/auth/register", methods=["POST"])
+def auth_register():
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    email = data.get("email")
+
+    user_mgr = get_user_manager()
+    result = user_mgr.register(username, password, email)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    user_mgr = get_user_manager()
+    result = user_mgr.login(username, password)
+    return json.dumps(result, ensure_ascii=False)
+
+
+def get_current_user():
+    """从请求中获取当前用户信息"""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        user_mgr = get_user_manager()
+        payload = user_mgr.verify_token(token)
+        if payload:
+            return {"user_id": payload["sub"], "username": payload["username"]}
+    # 也支持从 query 参数或 body 获取 token
+    token = request.args.get("token") or (request.get_json(silent=True) or {}).get("token")
+    if token:
+        user_mgr = get_user_manager()
+        payload = user_mgr.verify_token(token)
+        if payload:
+            return {"user_id": payload["sub"], "username": payload["username"]}
+    return None
 
 
 @app.route("/api/health")
@@ -515,6 +559,10 @@ def mcp_protocol():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     start_time = time.time()
+
+    # 获取当前用户（支持认证）
+    current_user = get_current_user()
+    user_id = current_user["user_id"] if current_user else None
 
     # 获取 session 隔离的 Agent 实例
     sid = request.cookies.get("session_id", "")
