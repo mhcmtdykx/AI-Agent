@@ -4,6 +4,7 @@ MCP客户端 - 连接外部MCP Server
 """
 import json
 import subprocess
+import threading
 import asyncio
 import requests
 from typing import Dict, List, Any, Optional
@@ -142,24 +143,40 @@ class MCPClient:
         else:
             raise ValueError(f"不支持的传输方式: {config.transport}")
     
-    def _send_stdio_request(self, server_name: str, request: Dict) -> Dict:
-        """通过stdio发送请求"""
+    def _send_stdio_request(self, server_name: str, request: Dict, timeout: int = 30) -> Dict:
+        """通过stdio发送请求（带超时）"""
         if server_name not in self.processes:
             raise ValueError(f"服务器未连接: {server_name}")
-        
+
         process = self.processes[server_name]
-        
+
         # 发送请求
         request_json = json.dumps(request, ensure_ascii=False) + "\n"
         process.stdin.write(request_json)
         process.stdin.flush()
-        
-        # 读取响应
-        response_line = process.stdout.readline()
-        if not response_line:
+
+        # 带超时的读取
+        result = [None]
+        error = [None]
+
+        def _read():
+            try:
+                result[0] = process.stdout.readline()
+            except Exception as e:
+                error[0] = e
+
+        thread = threading.Thread(target=_read, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            raise TimeoutError(f"MCP服务器响应超时({timeout}s): {server_name}")
+        if error[0]:
+            raise error[0]
+        if not result[0]:
             raise ValueError("服务器无响应")
-        
-        return json.loads(response_line)
+
+        return json.loads(result[0])
     
     def _send_http_request(self, server_name: str, request: Dict) -> Dict:
         """通过HTTP发送请求"""

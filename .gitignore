@@ -34,3 +34,7 @@ chroma/
 # 临时文件
 *.tmp
 *.bak
+
+# 运行时数据
+chat_history/
+memory_storage/*.json

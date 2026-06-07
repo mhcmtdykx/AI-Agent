@@ -1,5 +1,9 @@
-"""启动Web服务器 - 支持流式输出"""
+"""启动Web服务器 - 支持流式输出 (已弃用 - 请使用 flask_server.py)"""
 import sys
+print("[警告] start_web.py 已弃用，请使用 flask_server.py 代替:")
+print("  python flask_server.py")
+print()
+
 import os
 import json
 import time
@@ -10,18 +14,7 @@ sys.path.insert(0, current_dir)
 os.chdir(current_dir)
 
 # 加载.env文件
-def load_env_file(filepath):
-    env_vars = {}
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    env_vars[key.strip()] = value.strip()
-                    os.environ[key.strip()] = value.strip()
-    return env_vars
-
+from agent.utils import load_env_file
 env_file = os.path.join(current_dir, ".env")
 load_env_file(env_file)
 

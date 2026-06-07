@@ -44,8 +44,4 @@ class Config:
         return cls()
 
     def __repr__(self):
-        return "Config(model={}, temperature={}, base_url={})".format(
-            self.model_name,
-            self.temperature,
-            "***" if self.base_url else "None",
-        )
+        return f"Config(model={self.model_name}, temperature={self.temperature}, base_url={'***' if self.base_url else 'None'})"

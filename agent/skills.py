@@ -128,10 +128,10 @@ class SkillRegistry:
         """执行技能"""
         skill = self.get_skill(skill_name)
         if not skill:
-            return {"error": "技能不存在: {}".format(skill_name)}
+            return {"error": f"技能不存在: {skill_name}"}
         
         if not skill.enabled:
-            return {"error": "技能已禁用: {}".format(skill_name)}
+            return {"error": f"技能已禁用: {skill_name}"}
         
         try:
             # 验证参数
@@ -161,7 +161,7 @@ class SkillRegistry:
                 if param.default is not None:
                     validated[param.name] = param.default
                 else:
-                    raise ValueError("缺少必需参数: {}".format(param.name))
+                    raise ValueError(f"缺少必需参数: {param.name}")
             elif param.default is not None:
                 validated[param.name] = param.default
         
@@ -273,21 +273,53 @@ class ConfigSkillLoader:
         else:
             raise ValueError(f"不支持的实现类型: {impl_type}")
     
+    # 允许从 YAML 脚本中导入的安全模块白名单
+    _SAFE_MODULES = frozenset({
+        'math', 'json', 're', 'datetime', 'collections', 'itertools',
+        'functools', 'operator', 'string', 'textwrap', 'hashlib',
+        'base64', 'random', 'statistics', 'decimal', 'fractions',
+        'ast', 'copy', 'pprint', 'typing', 'dataclasses',
+        'requests', 'urllib', 'http',
+    })
+
     def _create_script_function(self, impl: Dict) -> Callable:
-        """创建脚本类型的执行函数"""
+        """创建脚本类型的执行函数（受限沙箱执行）"""
         code = impl.get('code', '')
         language = impl.get('language', 'python')
-        
+
         if language != 'python':
             raise ValueError(f"目前只支持Python脚本: {language}")
-        
-        # 动态执行Python代码
-        namespace = {}
+
+        # 构建受限内置函数：禁止危险操作，但允许受控的 __import__
+        if isinstance(__builtins__, dict):
+            safe_builtins = {k: v for k, v in __builtins__.items()
+                            if not k.startswith('_') and k not in (
+                                'eval', 'exec', 'compile', 'open',
+                                'breakpoint', 'exit', 'quit', 'globals', 'locals',
+                            )}
+        else:
+            safe_builtins = {k: getattr(__builtins__, k) for k in dir(__builtins__)
+                            if not k.startswith('_') and k not in (
+                                'eval', 'exec', 'compile', 'open',
+                                'breakpoint', 'exit', 'quit', 'globals', 'locals',
+                            )}
+
+        # 提供受控的 __import__，只允许白名单模块
+        _allowed = self._SAFE_MODULES
+        def _safe_import(name, *args, **kwargs):
+            top = name.split('.')[0]
+            if top not in _allowed:
+                raise ImportError(f"不允许导入模块: {name}")
+            return __import__(name, *args, **kwargs)
+
+        safe_builtins['__import__'] = _safe_import
+
+        namespace = {"__builtins__": safe_builtins}
         exec(code, namespace)
-        
+
         if 'execute' not in namespace:
             raise ValueError("脚本必须定义execute函数")
-        
+
         return namespace['execute']
     
     def _create_api_function(self, impl: Dict) -> Callable:
@@ -339,19 +371,42 @@ class ConfigSkillLoader:
         return execute
     
     def _create_llm_function(self, impl: Dict) -> Callable:
-        """创建LLM类型的执行函数"""
+        """创建LLM类型的执行函数（调用 OpenAI API）"""
+        import os
         prompt_template = impl.get('prompt_template', '')
-        
+        model = impl.get('model', os.getenv('MODEL_NAME', 'gpt-3.5-turbo'))
+
         def execute(**kwargs):
+            import requests
             # 渲染提示模板
             prompt = prompt_template
             for key, value in kwargs.items():
                 prompt = prompt.replace('{{' + key + '}}', str(value))
-            
-            # 这里应该调用LLM API
-            # 简化实现：返回提示内容
-            return f"[LLM处理] {prompt}"
-        
+
+            api_key = os.getenv('OPENAI_API_KEY', '')
+            base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1').rstrip('/')
+            if not api_key:
+                return f"[LLM未配置API密钥] 提示词: {prompt}"
+
+            try:
+                resp = requests.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.7,
+                    },
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+            except Exception as e:
+                return f"[LLM调用失败] {e}"
+
         return execute
 
 
@@ -378,6 +433,8 @@ def register_default_skills():
 
 def _register_builtin_skills():
     """注册内置技能（备用）"""
+    from .tools.basic_tools import calculator as safe_calculator
+    
     builtin_skills = [
         Skill(
             name="get_current_time",
@@ -390,7 +447,7 @@ def _register_builtin_skills():
             name="calculator",
             description="计算数学表达式",
             category="data",
-            execute_func=lambda expression: str(eval(expression, {"__builtins__": {}, "sqrt": __import__('math').sqrt})),
+            execute_func=safe_calculator,
             parameters=[
                 SkillParameter("expression", "string", "数学表达式")
             ]

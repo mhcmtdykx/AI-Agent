@@ -1,8 +1,35 @@
 """
 辅助工具函数
 """
+import os
 import logging
 from typing import Optional
+
+
+def load_env_file(filepath: str, override: bool = False) -> dict:
+    """
+    加载 .env 文件并设置环境变量
+
+    Args:
+        filepath: .env 文件路径
+        override: 是否覆盖已存在的环境变量
+
+    Returns:
+        解析出的键值对字典
+    """
+    env_vars = {}
+    if not os.path.exists(filepath):
+        return env_vars
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                key, value = key.strip(), value.strip()
+                env_vars[key] = value
+                if override or key not in os.environ:
+                    os.environ[key] = value
+    return env_vars
 
 
 def setup_logging(level: str = "INFO", log_file: Optional[str] = None):

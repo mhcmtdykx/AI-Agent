@@ -1,8 +1,15 @@
-"""简单的HTTP服务器"""
+"""
+简单的HTTP服务器 (已弃用 - 请使用 flask_server.py)
+"""
+import sys
+print("[警告] simple_server.py 已弃用，请使用 flask_server.py 代替:")
+print("  python flask_server.py")
+print()
+input("按回车键继续启动简单服务器，或 Ctrl+C 退出...")
+
 import http.server
 import socketserver
 import json
-import sys
 import os
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +23,7 @@ class MyHandler(http.server.SimpleHTTPRequestHandler):
             return http.server.SimpleHTTPRequestHandler.do_GET(self)
         self.send_response(404)
         self.end_headers()
-    
+
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b""

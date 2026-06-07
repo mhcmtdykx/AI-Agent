@@ -1,21 +1,77 @@
 """
 基础工具模块 - 提供常用工具函数
 """
+import ast
 import math
-import json
+import operator
 from datetime import datetime
+
+
+# 安全的数学表达式求值器 - 使用 AST 解析替代 eval()
+_SAFE_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+_SAFE_FUNCTIONS = {
+    "abs": abs, "round": round, "min": min, "max": max,
+    "pow": pow, "sqrt": math.sqrt, "sin": math.sin,
+    "cos": math.cos, "tan": math.tan, "log": math.log,
+    "log10": math.log10, "log2": math.log2,
+    "ceil": math.ceil, "floor": math.floor,
+}
+
+_SAFE_CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
+
+
+def _safe_eval(node):
+    """递归安全求值 AST 节点"""
+    if isinstance(node, ast.Expression):
+        return _safe_eval(node.body)
+    elif isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)):
+            return node.value
+        raise ValueError(f"不支持的常量类型: {type(node.value)}")
+    elif isinstance(node, ast.BinOp):
+        op = _SAFE_OPERATORS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"不支持的运算符: {type(node.op).__name__}")
+        return op(_safe_eval(node.left), _safe_eval(node.right))
+    elif isinstance(node, ast.UnaryOp):
+        op = _SAFE_OPERATORS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"不支持的运算符: {type(node.op).__name__}")
+        return op(_safe_eval(node.operand))
+    elif isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id in _SAFE_FUNCTIONS:
+            args = [_safe_eval(arg) for arg in node.args]
+            return _SAFE_FUNCTIONS[node.func.id](*args)
+        raise ValueError(f"不支持的函数调用")
+    elif isinstance(node, ast.Name):
+        if node.id in _SAFE_CONSTANTS:
+            return _SAFE_CONSTANTS[node.id]
+        raise ValueError(f"未定义的变量: {node.id}")
+    else:
+        raise ValueError(f"不支持的表达式类型: {type(node).__name__}")
 
 
 # 工具函数定义
 def get_current_time():
     """获取当前时间"""
     now = datetime.now()
-    return "当前时间是: {}".format(now.strftime('%Y-%m-%d %H:%M:%S'))
+    return f"当前时间是: {now.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
 def calculator(expression):
     """
-    计算数学表达式
+    计算数学表达式（安全实现，基于 AST 解析）
 
     Args:
         expression: 数学表达式，如 "2 + 3 * 4"
@@ -24,16 +80,13 @@ def calculator(expression):
         计算结果
     """
     try:
-        allowed_names = {
-            "abs": abs, "round": round, "min": min, "max": max,
-            "pow": pow, "sqrt": math.sqrt, "sin": math.sin,
-            "cos": math.cos, "tan": math.tan, "log": math.log,
-            "log10": math.log10, "pi": math.pi, "e": math.e,
-        }
-        result = eval(expression, {"__builtins__": {}}, allowed_names)
-        return "计算结果: {} = {}".format(expression, result)
-    except Exception as e:
-        return "计算错误: {}".format(str(e))
+        tree = ast.parse(expression, mode='eval')
+        result = _safe_eval(tree)
+        return f"计算结果: {expression} = {result}"
+    except (ValueError, TypeError, ZeroDivisionError) as e:
+        return f"计算错误: {e}"
+    except SyntaxError:
+        return f"计算错误: 表达式语法无效 '{expression}'"
 
 
 def text_analyzer(text):
@@ -51,8 +104,12 @@ def text_analyzer(text):
     line_count = len(text.split("\n"))
     avg_len = char_count / word_count if word_count > 0 else 0
 
-    return "文本分析结果:\n- 字符数: {}\n- 单词数: {}\n- 行数: {}\n- 平均单词长度: {:.1f}".format(
-        char_count, word_count, line_count, avg_len
+    return (
+        f"文本分析结果:\n"
+        f"- 字符数: {char_count}\n"
+        f"- 单词数: {word_count}\n"
+        f"- 行数: {line_count}\n"
+        f"- 平均单词长度: {avg_len:.1f}"
     )
 
 
@@ -66,7 +123,10 @@ def search(query):
     Returns:
         搜索结果
     """
-    return "搜索 '{}' 的结果: 这是一个模拟搜索工具。在实际应用中，您可以接入搜索引擎API来获取真实搜索结果。".format(query)
+    return (
+        f"搜索 '{query}' 的结果: 这是一个模拟搜索工具。"
+        f"在实际应用中，您可以接入搜索引擎API来获取真实搜索结果。"
+    )
 
 
 # 工具注册表
@@ -149,6 +209,6 @@ def execute_tool(tool_name, **kwargs):
         if result.get("success"):
             return str(result.get("result", ""))
         else:
-            return "未知工具: {}".format(tool_name)
+            return f"未知工具: {tool_name}"
     except Exception as e:
-        return "工具执行错误: {}".format(str(e))
+        return f"工具执行错误: {e}"

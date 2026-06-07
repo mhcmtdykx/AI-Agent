@@ -1,6 +1,6 @@
 # 网络搜索技能配置
 name: web_search
-description: 搜索网络信息
+description: 搜索网络信息（DuckDuckGo即时回答API）
 category: search
 version: "1.0.0"
 author: system
@@ -16,25 +16,44 @@ parameters:
     required: false
     default: 5
 
-# API类型实现
 implementation:
-  type: api
-  endpoint: "https://api.example.com/search"
-  method: POST
-  headers:
-    Content-Type: "application/json"
-  body_template: |
-    {
-      "query": "{{query}}",
-      "max_results": {{max_results}}
-    }
-  response_path: "results"
+  type: script
+  language: python
+  code: |
+    import requests
+    import json
 
-  # 备用：本地脚本实现
-  fallback:
-    type: script
-    language: python
-    code: |
-      def execute(query, max_results=5):
-          # 模拟搜索结果
-          return f"搜索结果: 关于 '{query}' 的信息（模拟，最多{max_results}条）"
+    def execute(query, max_results=5):
+        try:
+            # DuckDuckGo Instant Answer API（无需API key）
+            url = "https://api.duckduckgo.com/"
+            params = {"q": query, "format": "json", "no_redirect": "1", "no_html": "1"}
+            headers = {"User-Agent": "Mozilla/5.0 (AI-Agent/1.0)"}
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+
+            if resp.status_code != 200:
+                return f"搜索失败，状态码: {resp.status_code}"
+
+            data = resp.json()
+            results = []
+
+            # 摘要/即时回答
+            abstract = data.get("AbstractText", "")
+            if abstract:
+                results.append(f"摘要: {abstract}")
+
+            # 相关主题
+            for topic in data.get("RelatedTopics", [])[:max_results]:
+                if isinstance(topic, dict) and "Text" in topic:
+                    text = topic["Text"]
+                    first_url = topic.get("FirstURL", "")
+                    results.append(f"- {text}" + (f"\n  链接: {first_url}" if first_url else ""))
+
+            if results:
+                return "搜索结果:\n" + "\n".join(results)
+            else:
+                return f"未找到关于 '{query}' 的即时回答，请尝试更具体的关键词。"
+        except requests.Timeout:
+            return "搜索超时，请稍后重试"
+        except Exception as e:
+            return f"搜索出错: {e}"

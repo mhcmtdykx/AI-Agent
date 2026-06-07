@@ -7,6 +7,11 @@
     <!-- Mermaid.js for diagrams -->
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js for code highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -94,6 +99,21 @@
             background: rgba(255,255,255,0.3);
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .btn-theme {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-theme:hover {
+            background: rgba(255,255,255,0.3);
+            transform: rotate(30deg);
         }
         .btn-sidebar { 
             background: rgba(255,255,255,0.3); 
@@ -842,6 +862,448 @@
             padding: 0 4px;
         }
         
+        /* Markdown渲染样式 */
+        .ai-message h1, .ai-message h2, .ai-message h3, .ai-message h4, .ai-message h5, .ai-message h6 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        .ai-message h1 { font-size: 1.5em; }
+        .ai-message h2 { font-size: 1.3em; }
+        .ai-message h3 { font-size: 1.1em; }
+        .ai-message p {
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+        .ai-message ul, .ai-message ol {
+            margin-bottom: 12px;
+            padding-left: 24px;
+        }
+        .ai-message li {
+            margin-bottom: 4px;
+            line-height: 1.5;
+        }
+        .ai-message blockquote {
+            border-left: 4px solid #667eea;
+            padding: 8px 16px;
+            margin: 12px 0;
+            background: rgba(102, 126, 234, 0.05);
+            border-radius: 0 8px 8px 0;
+        }
+        .ai-message table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12px 0;
+        }
+        .ai-message th, .ai-message td {
+            border: 1px solid #e2e8f0;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        .ai-message th {
+            background: #f8fafc;
+            font-weight: 600;
+        }
+        .ai-message a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .ai-message a:hover {
+            text-decoration: underline;
+        }
+        .ai-message hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 16px 0;
+        }
+        
+        /* 代码块样式 */
+        .ai-message pre {
+            background: #f6f8fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            overflow-x: auto;
+            position: relative;
+        }
+        .ai-message pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .ai-message code {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            font-size: 0.9em;
+            color: #e53e3e;
+        }
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 8px 8px 0 0;
+            margin-bottom: -8px;
+        }
+        .code-lang {
+            font-size: 12px;
+            color: #475569;
+            font-weight: 600;
+        }
+        .btn-copy {
+            background: rgba(0,0,0,0.1);
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #475569;
+            transition: all 0.2s ease;
+        }
+        .btn-copy:hover {
+            background: rgba(0,0,0,0.2);
+        }
+        .btn-copy.copied {
+            background: #66bb6a;
+            color: white;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .header {
+                padding: 12px 16px;
+                flex-direction: column;
+                gap: 12px;
+            }
+            .header h1 {
+                font-size: 18px;
+            }
+            .header-controls {
+                width: 100%;
+                justify-content: center;
+            }
+            .chat-history-sidebar {
+                width: 100%;
+                min-width: 100%;
+                height: auto;
+                max-height: 300px;
+            }
+            .chat-history-sidebar.collapsed {
+                width: 100%;
+                min-width: 100%;
+                max-height: 60px;
+            }
+            .chat-container {
+                margin-left: 0 !important;
+                padding: 16px;
+            }
+            .input-container {
+                margin-left: 0 !important;
+                padding: 12px 16px;
+                flex-direction: column;
+            }
+            .input-container input {
+                width: 100%;
+            }
+            .btn-send {
+                width: 100%;
+            }
+            .sidebar {
+                width: 100%;
+                min-width: 100%;
+                height: auto;
+                max-height: 50vh;
+            }
+            .message {
+                max-width: 90%;
+            }
+            .toggle-group {
+                font-size: 12px;
+                padding: 4px 8px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 16px;
+            }
+            .btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            .message {
+                padding: 12px 14px;
+                font-size: 13px;
+            }
+            .welcome-message h2 {
+                font-size: 24px;
+            }
+            .welcome-message p {
+                font-size: 13px;
+            }
+        }
+        
+        /* 增强动画效果 */
+        .message {
+            transition: all 0.3s ease;
+        }
+        .message:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .user-message:hover {
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+        }
+        
+        /* 侧边栏切换动画 */
+        .sidebar {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sidebar.active {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        /* 按钮点击波纹效果 */
+        .btn {
+            position: relative;
+            overflow: hidden;
+        }
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        .btn:active::after {
+            width: 200px;
+            height: 200px;
+        }
+        
+        /* 输入框聚焦动画 */
+        .input-container input {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .input-container input:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.2);
+        }
+        
+        /* 代码块复制按钮动画 */
+        .btn-copy {
+            transition: all 0.2s ease;
+        }
+        .btn-copy:hover {
+            transform: scale(1.05);
+        }
+        .btn-copy:active {
+            transform: scale(0.95);
+        }
+        
+        /* 加载动画 */
+        .loading-dots {
+            display: inline-flex;
+            gap: 4px;
+        }
+        .loading-dots span {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: loadingBounce 1.4s infinite ease-in-out both;
+        }
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes loadingBounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        /* 暗黑主题 */
+        body.dark-theme {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e2e8f0;
+        }
+        body.dark-theme .header {
+            background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+        }
+        body.dark-theme .chat-history-sidebar {
+            background: rgba(26, 32, 44, 0.95);
+            border-right-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .chat-history-header {
+            background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+        }
+        body.dark-theme .chat-history-item {
+            background: #2d3748;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .chat-history-item:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        body.dark-theme .chat-history-item.active {
+            background: rgba(102, 126, 234, 0.3);
+        }
+        body.dark-theme .chat-history-item-title {
+            color: #e2e8f0;
+        }
+        body.dark-theme .input-container {
+            background: rgba(26, 32, 44, 0.95);
+            border-top-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .input-container input {
+            background: #2d3748;
+            border-color: #4a5568;
+            color: #e2e8f0;
+        }
+        body.dark-theme .input-container input:focus {
+            border-color: #667eea;
+        }
+        body.dark-theme .sidebar {
+            background: rgba(26, 32, 44, 0.95);
+            border-left-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .sidebar-header {
+            background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+        }
+        body.dark-theme .sidebar-section {
+            background: #2d3748;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .sidebar-section h4 {
+            color: #667eea;
+        }
+        body.dark-theme .ai-message {
+            background: #2d3748;
+            color: #e2e8f0;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .typing-indicator {
+            background: #2d3748;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .stats-box {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            color: #e2e8f0;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .agent-info {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .metric-card {
+            background: #2d3748;
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .search-result-item {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            border-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .log-entry {
+            border-bottom-color: rgba(255,255,255,0.1);
+        }
+        body.dark-theme .log-entry:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        body.dark-theme .tab {
+            color: #a0aec0;
+        }
+        body.dark-theme .tab:hover {
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        body.dark-theme .tab.active {
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.2);
+        }
+        body.dark-theme .upload-area textarea,
+        body.dark-theme .upload-area input[type="text"],
+        body.dark-theme .search-box input {
+            background: #2d3748;
+            border-color: #4a5568;
+            color: #e2e8f0;
+        }
+        body.dark-theme .upload-area textarea:focus,
+        body.dark-theme .upload-area input[type="text"]:focus,
+        body.dark-theme .search-box input:focus {
+            border-color: #667eea;
+        }
+        body.dark-theme .file-preview {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+        body.dark-theme .file-preview-item {
+            background: #4a5568;
+            border-color: #718096;
+            color: #e2e8f0;
+        }
+        body.dark-theme .code-header {
+            background: #4a5568;
+        }
+        body.dark-theme .code-lang {
+            color: #e2e8f0;
+        }
+        body.dark-theme .btn-copy {
+            background: rgba(255,255,255,0.1);
+            color: #e2e8f0;
+        }
+        body.dark-theme .btn-copy:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        body.dark-theme pre {
+            background: #1a202c;
+        }
+        body.dark-theme code {
+            background: rgba(102, 126, 234, 0.2);
+            color: #fbd38d;
+        }
+        body.dark-theme blockquote {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        body.dark-theme th {
+            background: #4a5568;
+        }
+        body.dark-theme th, body.dark-theme td {
+            border-color: #4a5568;
+        }
+        body.dark-theme .react-thought {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+        }
+        body.dark-theme .react-action {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+        }
+        body.dark-theme .react-observation {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+        }
+        body.dark-theme .react-answer {
+            background: #2d3748;
+        }
+        body.dark-theme .reasoning-content {
+            border-left-color: #4a5568;
+            color: #a0aec0;
+        }
+        
         /* 停止按钮样式 */
         .btn-stop {
             background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%) !important;
@@ -1022,6 +1484,19 @@
             <h1>智能助手</h1>
         </div>
         <div class="header-controls">
+            <button class="btn btn-theme" onclick="toggleTheme()" title="切换主题">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+            </button>
             <button class="btn btn-sidebar" onclick="toggleSidebar()">管理面板</button>
             <button class="btn btn-clear" onclick="clearChat()">清空</button>
         </div>
@@ -1279,9 +1754,61 @@
         const chatHistoryList = document.getElementById("chatHistoryList");
         const chatHistoryEmpty = document.getElementById("chatHistoryEmpty");
         
+        // 配置marked.js
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(code, { language: lang }).value;
+                    } catch (e) {}
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true,
+            gfm: true
+        });
+        
+        // 渲染Markdown并处理代码块
+        function renderMarkdown(text) {
+            try {
+                const html = marked.parse(text);
+                return html.replace(/<pre><code class="language-(\w+)">/g, '<div class="code-header"><span class="code-lang">$1</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div><pre><code class="language-$1">');
+            } catch (e) {
+                console.warn("Markdown渲染失败，回退纯文本:", e);
+                return escapeHtml(text);
+            }
+        }
+        
+        // 复制代码功能
+        function copyCode(btn) {
+            const codeBlock = btn.closest('.code-header').nextElementSibling.querySelector('code');
+            const text = codeBlock.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '已复制';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '复制';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+        
         // 停止功能相关变量
         let isStreaming = false;
         let abortController = null;
+        
+        // 主题相关变量
+        let isDarkTheme = false;
+        
+        // 快捷键映射
+        const shortcuts = {
+            'ctrl+enter': sendMessage,
+            'ctrl+l': clearChat,
+            'ctrl+b': toggleSidebar,
+            'ctrl+h': toggleChatHistory,
+            'ctrl+n': createNewChat,
+            'ctrl+shift+t': toggleTheme
+        };
         
         // 对话历史相关变量
         let currentChatId = null;
@@ -1294,7 +1821,52 @@
         window.onload = function() {
             loadAllStats();
             loadChatHistory();
+            loadTheme();
+            initShortcuts();
         };
+        
+        // 加载主题设置
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                isDarkTheme = true;
+                document.body.classList.add('dark-theme');
+            }
+        }
+        
+        // 切换主题
+        function toggleTheme() {
+            isDarkTheme = !isDarkTheme;
+            document.body.classList.toggle('dark-theme');
+            localStorage.setItem('theme', isDarkTheme ? 'dark' : 'light');
+        }
+        
+        // 初始化快捷键
+        function initShortcuts() {
+            document.addEventListener('keydown', function(e) {
+                // 忽略输入框中的快捷键
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    // 只允许Ctrl+Enter在输入框中发送消息
+                    if (e.ctrlKey && e.key === 'Enter') {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                    return;
+                }
+                
+                const key = [];
+                if (e.ctrlKey) key.push('ctrl');
+                if (e.shiftKey) key.push('shift');
+                if (e.altKey) key.push('alt');
+                key.push(e.key.toLowerCase());
+                
+                const shortcutKey = key.join('+');
+                if (shortcuts[shortcutKey]) {
+                    e.preventDefault();
+                    shortcuts[shortcutKey]();
+                }
+            });
+        }
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -1918,7 +2490,10 @@
             
             const messageDiv = document.createElement("div");
             messageDiv.className = "message " + (isUser ? "user-message" : "ai-message");
-            let html = escapeHtml(content);
+            
+            // 对AI消息使用Markdown渲染，对用户消息使用纯文本
+            let html = isUser ? escapeHtml(content) : renderMarkdown(content);
+            
             for (const badge of badges) {
                 html += '<span class="badge badge-' + badge.type + '">' + badge.label + '</span>';
             }
@@ -2067,30 +2642,28 @@
                         aiMessageDiv = addMessage("", false, true, badges);
                         let sections = [];
                         let currentThought = "";  // 累积思考内容
-                        
-                        while (true) {
+                        let streamDone = false;
+
+                        while (!streamDone) {
                             const { done, value } = await reader.read();
                             if (done) break;
                             buffer += decoder.decode(value, { stream: true });
                             const lines = buffer.split("\n");
                             buffer = lines.pop() || "";
-                            
+
                             for (const line of lines) {
                                 if (line.startsWith("data: ")) {
                                     const data = line.slice(6).trim();
-                                    if (data === "[DONE]") { 
-                                        // 保存最后的思考内容
+                                    if (data === "[DONE]") {
                                         if (currentThought) {
                                             sections.push({ type: "thought", content: currentThought });
                                         }
-                                        updateReactMessage(aiMessageDiv, sections, badges); 
-                                        break; 
+                                        streamDone = true;
+                                        break;
                                     }
                                     try {
                                         const parsed = JSON.parse(data);
                                         if (parsed.type && parsed.content) {
-                                            // 有type字段 - 工具调用或最终回答
-                                            // 先保存之前的思考内容
                                             if (currentThought) {
                                                 sections.push({ type: "thought", content: currentThought });
                                                 currentThought = "";
@@ -2098,9 +2671,7 @@
                                             sections.push({ type: parsed.type, content: parsed.content });
                                             updateReactMessage(aiMessageDiv, sections, badges);
                                         } else if (parsed.content) {
-                                            // 只有content - 流式思考内容
                                             currentThought += parsed.content;
-                                            // 实时显示
                                             let tempSections = [...sections, { type: "thought", content: currentThought }];
                                             updateReactMessage(aiMessageDiv, tempSections, badges);
                                         }
@@ -2111,18 +2682,19 @@
                         updateReactMessage(aiMessageDiv, sections, badges);
                     } else {
                         aiMessageDiv = addMessage("", false, true, badges);
-                        
-                        while (true) {
+                        let streamDone = false;
+
+                        while (!streamDone) {
                             const { done, value } = await reader.read();
                             if (done) break;
                             buffer += decoder.decode(value, { stream: true });
                             const lines = buffer.split("\n");
                             buffer = lines.pop() || "";
-                            
+
                             for (const line of lines) {
                                 if (line.startsWith("data: ")) {
                                     const data = line.slice(6).trim();
-                                    if (data === "[DONE]") { updateNormalMessage(aiMessageDiv, reasoningContent, fullReply, false, badges); break; }
+                                    if (data === "[DONE]") { streamDone = true; break; }
                                     try {
                                         const parsed = JSON.parse(data);
                                         if (parsed.reasoning) {
@@ -2171,13 +2743,18 @@
             userInput.focus();
         }
 
-        // 使用简单的innerHTML更新，避免闪烁
+        // 流式更新：缓存渲染结果，避免重复 renderMarkdown 导致闪烁
         function updateReactMessage(messageDiv, sections, badges) {
+            // 缓存检查：如果内容完全没变就跳过
+            const key = JSON.stringify(sections);
+            if (messageDiv._lastReactKey === key) return;
+            messageDiv._lastReactKey = key;
+
             let html = '';
             for (const section of sections) {
                 html += '<div class="react-section react-' + section.type + '">';
                 html += '<div class="react-label">' + getReactLabel(section.type) + '</div>';
-                html += '<div>' + escapeHtml(section.content) + '</div>';
+                html += '<div>' + renderMarkdown(section.content) + '</div>';
                 html += '</div>';
             }
             for (const badge of badges) {
@@ -2188,11 +2765,16 @@
         }
 
         function updateNormalMessage(messageDiv, reasoning, content, isStreaming, badges) {
+            // 缓存检查：如果内容完全没变就跳过
+            const cacheKey = reasoning + '\x00' + content;
+            if (messageDiv._lastNormalKey === cacheKey) return;
+            messageDiv._lastNormalKey = cacheKey;
+
             let html = "";
             if (reasoning) {
                 html += '<div class="reasoning-content"><span class="reasoning-label">思考过程：</span>' + escapeHtml(reasoning) + '</div>';
             }
-            if (content) html += escapeHtml(content);
+            if (content) html += renderMarkdown(content);
             for (const badge of badges) {
                 html += '<span class="badge badge-' + badge.type + '">' + badge.label + '</span>';
             }

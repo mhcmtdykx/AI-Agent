@@ -252,7 +252,7 @@ class MCPServer:
             else:
                 return MCPResponse(
                     request_id=request_id,
-                    error=MCPError.create(MCPError.METHOD_NOT_FOUND, "方法不存在: {}".format(method))
+                    error=MCPError.create(MCPError.METHOD_NOT_FOUND, f"方法不存在: {method}")
                 ).to_dict()
             
             return MCPResponse(request_id=request_id, result=result).to_dict()
@@ -284,7 +284,7 @@ class MCPServer:
         
         if tool_name not in self.tools:
             return {
-                "content": [{"type": "text", "text": "工具不存在: {}".format(tool_name)}],
+                "content": [{"type": "text", "text": f"工具不存在: {tool_name}"}],
                 "isError": True
             }
         
@@ -304,7 +304,7 @@ class MCPServer:
         
         except Exception as e:
             return {
-                "content": [{"type": "text", "text": "执行错误: {}".format(str(e))}],
+                "content": [{"type": "text", "text": f"执行错误: {e}"}],
                 "isError": True
             }
     
@@ -319,7 +319,7 @@ class MCPServer:
         uri = params.get("uri")
         
         if uri not in self.resources:
-            raise ValueError("资源不存在: {}".format(uri))
+            raise ValueError(f"资源不存在: {uri}")
         
         handler = self.resource_handlers[uri]
         content = handler()
@@ -344,7 +344,7 @@ class MCPServer:
         arguments = params.get("arguments", {})
         
         if prompt_name not in self.prompts:
-            raise ValueError("提示不存在: {}".format(prompt_name))
+            raise ValueError(f"提示不存在: {prompt_name}")
         
         prompt = self.prompts[prompt_name]
         return {
@@ -459,7 +459,7 @@ def create_default_mcp_server() -> MCPServer:
             result = eval(expression, safe_dict)
             return str(result)
         except Exception as e:
-            return "计算错误: {}".format(str(e))
+            return f"计算错误: {e}"
     
     @server.tool(name="text_analyze", description="分析文本信息")
     def text_analyze(text: str) -> Dict:
@@ -475,7 +475,7 @@ def create_default_mcp_server() -> MCPServer:
             data = json.loads(json_str)
             return json.dumps(data, indent=2, ensure_ascii=False)
         except Exception as e:
-            return "JSON错误: {}".format(str(e))
+            return f"JSON错误: {e}"
     
     # 注册资源
     def get_system_info() -> str:

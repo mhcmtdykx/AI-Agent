@@ -1,7 +1,11 @@
 """
-Web版Agent - 使用Flask提供Web界面
+Web版Agent - 使用HTTP Server提供Web界面 (已弃用 - 请使用 flask_server.py)
 """
 import sys
+print("[警告] web_app.py 已弃用，请使用 flask_server.py 代替:")
+print("  python flask_server.py")
+print()
+
 import os
 import json
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -11,27 +15,11 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agent import Agent, Config
-
-
-def load_env_file(filepath):
-    """加载.env文件"""
-    env_vars = {}
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    env_vars[key.strip()] = value.strip()
-    return env_vars
-
+from agent.utils import load_env_file
 
 # 加载配置
 env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-env_vars = load_env_file(env_file)
-for key, value in env_vars.items():
-    if key not in os.environ:
-        os.environ[key] = value
+load_env_file(env_file)
 
 config = Config.from_env()
 config.validate()

@@ -3,22 +3,14 @@ import sys
 import os
 import json
 import time
+import uuid
+import threading
+from collections import OrderedDict
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # 加载.env文件
-def load_env_file(filepath):
-    env_vars = {}
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    env_vars[key.strip()] = value.strip()
-                    os.environ[key.strip()] = value.strip()
-    return env_vars
-
+from agent.utils import load_env_file
 load_env_file(".env")
 
 from flask import Flask, request, Response, send_file
@@ -35,9 +27,7 @@ app = Flask(__name__)
 config = Config.from_env()
 config.validate()
 
-# 初始化各系统
-agent = Agent(config=config)
-react_agent = ReActAgent(config=config)
+# 初始化各系统（共享资源）
 multi_agent = get_multi_agent_system()
 long_term_memory = get_long_term_memory()
 evaluation = get_evaluation_system()
@@ -46,14 +36,81 @@ skill_registry = get_skill_registry()
 mcp_server = get_mcp_server()
 mcp_client = get_mcp_client()
 
-# 当前设置
+
+class SessionManager:
+    """按 session 隔离 Agent 实例，避免多用户对话串扰"""
+
+    def __init__(self, config, max_sessions=50, ttl_seconds=3600):
+        self._config = config
+        self._max_sessions = max_sessions
+        self._ttl = ttl_seconds
+        self._sessions = OrderedDict()  # sid -> (agent, react_agent, last_access)
+        self._lock = threading.Lock()
+
+    def get_agents(self, sid=None):
+        """获取或创建 session 对应的 Agent 实例，返回 (sid, agent, react_agent)"""
+        if not sid:
+            sid = str(uuid.uuid4())
+        with self._lock:
+            if sid in self._sessions:
+                entry = self._sessions[sid]
+                entry[2] = time.time()  # 更新 last_access
+                self._sessions.move_to_end(sid)
+                return sid, entry[0], entry[1]
+            # 清理过期 session
+            self._evict()
+            # 创建新实例
+            agent = Agent(config=self._config)
+            react_agent = ReActAgent(config=self._config)
+            self._sessions[sid] = [agent, react_agent, time.time()]
+            return sid, agent, react_agent
+
+    def clear_session(self, sid):
+        with self._lock:
+            self._sessions.pop(sid, None)
+
+    def _evict(self):
+        """淘汰过期和超限的 session"""
+        now = time.time()
+        # 淘汰过期
+        expired = [k for k, v in self._sessions.items() if now - v[2] > self._ttl]
+        for k in expired:
+            del self._sessions[k]
+        # 淘汰超限（LRU）
+        while len(self._sessions) > self._max_sessions:
+            self._sessions.popitem(last=False)
+
+
+session_mgr = SessionManager(config)
+
+# 当前设置（使用锁保护，确保线程安全）
+_settings_lock = threading.Lock()
 current_mode = "normal"  # normal, react, multi_agent
 use_rag = False
 use_memory = False
 
+
+@app.after_request
+def set_session_cookie(response):
+    """确保客户端持有 session_id cookie"""
+    if not request.cookies.get("session_id"):
+        response.set_cookie("session_id", str(uuid.uuid4()), max_age=86400, httponly=False, samesite="Lax")
+    return response
+
+
 @app.route("/")
 def index():
     return send_file("index.html")
+
+
+@app.route("/api/health")
+def health():
+    return json.dumps({
+        "status": "ok",
+        "active_sessions": len(session_mgr._sessions),
+        "mode": current_mode,
+    })
+
 
 @app.route("/api/tools")
 def tools():
@@ -66,22 +123,24 @@ def mode():
     global current_mode, use_rag, use_memory
     if request.method == "POST":
         data = request.get_json()
-        new_mode = data.get("mode", current_mode)
-        if new_mode in ["normal", "react", "multi_agent"]:
-            current_mode = new_mode
-        use_rag = data.get("rag", use_rag)
-        use_memory = data.get("memory", use_memory)
+        with _settings_lock:
+            new_mode = data.get("mode", current_mode)
+            if new_mode in ["normal", "react", "multi_agent"]:
+                current_mode = new_mode
+            use_rag = data.get("rag", use_rag)
+            use_memory = data.get("memory", use_memory)
+            return json.dumps({
+                "mode": current_mode,
+                "rag": use_rag,
+                "memory": use_memory,
+                "status": "ok"
+            })
+    with _settings_lock:
         return json.dumps({
             "mode": current_mode,
             "rag": use_rag,
-            "memory": use_memory,
-            "status": "ok"
+            "memory": use_memory
         })
-    return json.dumps({
-        "mode": current_mode,
-        "rag": use_rag,
-        "memory": use_memory
-    })
 
 # ========== RAG API ==========
 @app.route("/api/rag/upload", methods=["POST"])
@@ -109,9 +168,9 @@ def rag_upload():
                     file.seek(0)
                     content = file.read().decode('gbk')
             else:
-                return json.dumps({"error": "不支持的文件格式: {}".format(file_ext)}), 400
+                return json.dumps({"error": f"不支持的文件格式: {file_ext}"}), 400
         except Exception as e:
-            return json.dumps({"error": "文件解析失败: {}".format(str(e))}), 400
+            return json.dumps({"error": f"文件解析失败: {e}"}), 400
         
         title = filename
     else:
@@ -125,14 +184,14 @@ def rag_upload():
     
     try:
         chunk_count = rag_system.load_text(content, {"title": title, "source": "upload"})
-        observability.info("RAG文档上传: {}".format(title), "rag")
+        observability.info(f"RAG文档上传: {title}", "rag")
         return json.dumps({
             "status": "ok",
             "chunk_count": chunk_count,
-            "message": "文档已添加，分割为 {} 个文本块".format(chunk_count)
+            "message": f"文档已添加，分割为 {chunk_count} 个文本块"
         })
     except Exception as e:
-        observability.error("RAG上传失败: {}".format(str(e)), "rag")
+        observability.error(f"RAG上传失败: {e}", "rag")
         return json.dumps({"error": str(e)}), 500
 
 
@@ -199,7 +258,7 @@ def multi_agent_add():
     
     success = multi_agent.add_agent(agent_id, role)
     if success:
-        observability.info("添加Agent: {} ({})".format(agent_id, role), "multi_agent")
+        observability.info(f"添加Agent: {agent_id} ({role})", "multi_agent")
         return json.dumps({"status": "ok"})
     return json.dumps({"error": "无效的角色"}), 400
 
@@ -439,10 +498,18 @@ def mcp_protocol():
 # ========== Chat API ==========
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    global current_mode, use_rag, use_memory
-    
     start_time = time.time()
-    
+
+    # 获取 session 隔离的 Agent 实例
+    sid = request.cookies.get("session_id", "")
+    sid, agent, react_agent = session_mgr.get_agents(sid or None)
+
+    # 在锁保护下读取全局设置的快照
+    with _settings_lock:
+        mode_snapshot = current_mode
+        rag_snapshot = use_rag
+        memory_snapshot = use_memory
+
     try:
         # 处理文件上传
         files = []
@@ -454,7 +521,7 @@ def chat():
             enable_rag = request.form.get("rag", "true").lower() == "true"
             enable_memory = request.form.get("memory", "true").lower() == "true"
             use_multi_agent = request.form.get("multi_agent", "false").lower() == "true"
-            
+
             # 获取上传的文件
             if 'files' in request.files:
                 files = request.files.getlist('files')
@@ -463,10 +530,10 @@ def chat():
             data = request.get_json()
             message = data.get("message", "")
             stream = data.get("stream", False)
-            use_react = data.get("react", current_mode == "react")
-            enable_rag = data.get("rag", use_rag)
-            enable_memory = data.get("memory", use_memory)
-            use_multi_agent = data.get("multi_agent", current_mode == "multi_agent")
+            use_react = data.get("react", mode_snapshot == "react")
+            enable_rag = data.get("rag", rag_snapshot)
+            enable_memory = data.get("memory", memory_snapshot)
+            use_multi_agent = data.get("multi_agent", mode_snapshot == "multi_agent")
         
         if not message and not files:
             return json.dumps({"error": "消息不能为空"}), 400
@@ -477,23 +544,23 @@ def chat():
             if file.filename:
                 try:
                     content = file.read().decode('utf-8', errors='ignore')
-                    file_contents.append("文件 {}: {}".format(file.filename, content[:2000]))  # 限制长度
+                    file_contents.append(f"文件 {file.filename}: {content[:2000]}")  # 限制长度
                 except Exception as e:
-                    file_contents.append("文件 {}: 读取失败 - {}".format(file.filename, str(e)))
+                    file_contents.append(f"文件 {file.filename}: 读取失败 - {e}")
         
         # 如果有文件内容，添加到消息中
         if file_contents:
             file_context = "\n\n".join(file_contents)
             if message:
-                message = "{}\n\n上传的文件内容:\n{}".format(message, file_context)
+                message = f"{message}\n\n上传的文件内容:\n{file_context}"
             else:
-                message = "请分析以下文件内容:\n{}".format(file_context)
+                message = f"请分析以下文件内容:\n{file_context}"
         
         # 记录日志
-        observability.info("收到用户消息: {}".format(message[:50]), "chat")
+        observability.info(f"收到用户消息: {message[:50]}", "chat")
     except Exception as e:
-        observability.error("处理请求错误: {}".format(str(e)), "chat")
-        return json.dumps({"error": "处理请求失败: {}".format(str(e))}), 400
+        observability.error(f"处理请求错误: {e}", "chat")
+        return json.dumps({"error": f"处理请求失败: {e}"}), 400
     
     # 获取RAG上下文
     rag_context = ""
@@ -510,16 +577,17 @@ def chat():
     context_parts = []
     
     if rag_context:
-        context_parts.append("参考资料：\n{}".format(rag_context))
+        context_parts.append(f"参考资料：\n{rag_context}")
     if memory_context:
-        context_parts.append("历史相关记录：\n{}".format(memory_context))
+        context_parts.append(f"历史相关记录：\n{memory_context}")
     
     if context_parts:
-        enhanced_message = """请参考以下信息回答用户的问题：
-
-{context}
-
-用户问题：{question}""".format(context="\n\n".join(context_parts), question=message)
+        context_str = "\n\n".join(context_parts)
+        enhanced_message = (
+            f"请参考以下信息回答用户的问题：\n\n"
+            f"{context_str}\n\n"
+            f"用户问题：{message}"
+        )
     
     # 选择Agent
     if use_multi_agent:
@@ -528,10 +596,10 @@ def chat():
             def generate():
                 try:
                     for item in multi_agent.chat_stream(enhanced_message, use_react):
-                        yield "data: {}\n\n".format(json.dumps(item, ensure_ascii=False))
+                        yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     yield "data: [DONE]\n\n"
                 except Exception as e:
-                    yield "data: {}\n\n".format(json.dumps({"type": "answer", "content": "错误: {}".format(str(e))}, ensure_ascii=False))
+                    yield f"data: {json.dumps({'type': 'answer', 'content': f'错误: {e}'}, ensure_ascii=False)}\n\n"
             
             return Response(generate(), mimetype="text/event-stream")
         else:
@@ -540,7 +608,7 @@ def chat():
             # 记录评估
             latency = time.time() - start_time
             evaluation.record_conversation(
-                session_id="session_{}".format(int(start_time)),
+                session_id=f"session_{int(start_time)}",
                 user_message=message,
                 ai_response=result.get("final_answer", ""),
                 latency=latency,
@@ -557,23 +625,23 @@ def chat():
                 try:
                     if use_react:
                         for item in active_agent.chat_stream(enhanced_message):
-                            yield "data: {}\n\n".format(json.dumps(item, ensure_ascii=False))
+                            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     else:
                         messages = active_agent._build_messages(enhanced_message)
-                        
+
                         headers = {
                             "Content-Type": "application/json",
-                            "Authorization": "Bearer {}".format(active_agent.api_key),
+                            "Authorization": f"Bearer {active_agent.api_key}",
                         }
-                        
+
                         api_data = {
                             "model": active_agent.config.model_name,
                             "messages": messages,
                             "temperature": active_agent.config.temperature,
                             "stream": True,
                         }
-                        
-                        url = "{}/chat/completions".format(active_agent.base_url.rstrip("/"))
+
+                        url = f"{active_agent.base_url.rstrip('/')}/chat/completions"
                         response = http_requests.post(url, headers=headers, json=api_data, stream=True, timeout=60)
                         
                         full_reply = ""
@@ -595,11 +663,11 @@ def chat():
                                         delta = choices[0].get("delta", {})
                                         if delta.get("reasoning_content"):
                                             reasoning_content += delta["reasoning_content"]
-                                            yield "data: {}\n\n".format(json.dumps({"reasoning": delta["reasoning_content"]}, ensure_ascii=False))
+                                            yield f"data: {json.dumps({'reasoning': delta['reasoning_content']}, ensure_ascii=False)}\n\n"
                                         if delta.get("content"):
                                             content = delta["content"]
                                             full_reply += content
-                                            yield "data: {}\n\n".format(json.dumps({"content": content}, ensure_ascii=False))
+                                            yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
                                     except (json.JSONDecodeError, IndexError, KeyError):
                                         continue
                         
@@ -616,8 +684,8 @@ def chat():
                     yield "data: [DONE]\n\n"
                     
                 except Exception as e:
-                    observability.error("聊天错误: {}".format(str(e)), "chat")
-                    yield "data: {}\n\n".format(json.dumps({"error": str(e)}, ensure_ascii=False))
+                    observability.error(f"聊天错误: {e}", "chat")
+                    yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
             
             return Response(generate(), mimetype="text/event-stream")
         else:
@@ -631,7 +699,7 @@ def chat():
             # 记录评估
             latency = time.time() - start_time
             evaluation.record_conversation(
-                session_id="session_{}".format(int(start_time)),
+                session_id=f"session_{int(start_time)}",
                 user_message=message,
                 ai_response=result.get("response", ""),
                 latency=latency,
@@ -646,10 +714,11 @@ def chat():
 
 @app.route("/api/clear", methods=["POST"])
 def clear():
-    global current_mode
     data = request.get_json() or {}
+    sid = request.cookies.get("session_id", "")
+    sid, agent, react_agent = session_mgr.get_agents(sid or None)
     mode = data.get("mode", current_mode)
-    
+
     if mode == "multi_agent":
         multi_agent.clear_all()
     elif mode == "react":
@@ -676,39 +745,67 @@ def status():
 
 @app.route("/api/upload/image", methods=["POST"])
 def upload_image():
-    """上传图片并进行分析"""
+    """上传图片并使用视觉模型进行分析"""
     if 'file' not in request.files:
         return json.dumps({"error": "没有上传文件"}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return json.dumps({"error": "文件名为空"}), 400
-    
-    # 检查文件类型
+
     allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
-    if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
-        return json.dumps({"error": "不支持的图片格式"}), 400
-    
+    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        return json.dumps({"error": f"不支持的图片格式: {ext}"}), 400
+
     try:
-        # 读取图片内容
-        image_data = file.read()
-        
-        # 将图片转换为base64
         import base64
+        image_data = file.read()
         image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # 调用AI分析图片
-        # 注意：这需要AI模型支持图片分析
-        # 目前返回图片信息
+        mime_type = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+
+        # 获取用户提示词（可选）
+        prompt = request.form.get("prompt", "请描述并分析这张图片的内容。")
+
+        # 调用支持视觉的模型
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.api_key}",
+        }
+        payload = {
+            "model": config.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 1024,
+        }
+
+        url = f"{config.base_url or 'https://api.openai.com/v1'}/chat/completions"
+        resp = http_requests.post(url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        result = resp.json()
+
+        answer = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         return json.dumps({
             "status": "ok",
             "filename": file.filename,
             "size": len(image_data),
-            "message": "图片上传成功。注意：当前模型可能不支持图片分析，图片已保存为文本描述。"
+            "analysis": answer,
         }, ensure_ascii=False)
-        
+
+    except http_requests.exceptions.HTTPError as e:
+        return json.dumps({"error": f"视觉模型调用失败（模型可能不支持图片）: {e}"}), 502
     except Exception as e:
-        return json.dumps({"error": "处理图片失败: {}".format(str(e))}), 500
+        return json.dumps({"error": f"处理图片失败: {e}"}), 500
 
 if __name__ == "__main__":
     observability.info("服务器启动", "server")

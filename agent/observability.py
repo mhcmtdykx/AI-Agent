@@ -221,7 +221,7 @@ class ObservabilitySystem:
             self.logs = self.logs[-self.max_logs:]
         
         # 同时输出到标准日志
-        log_message = "[{}] {}".format(module or "general", message)
+        log_message = f"[{module or 'general'}] {message}"
         if level == LogLevel.DEBUG:
             self.logger.debug(log_message)
         elif level == LogLevel.INFO:
@@ -234,7 +234,7 @@ class ObservabilitySystem:
             self.logger.critical(log_message)
         
         # 更新指标
-        self.metrics.increment_counter("logs.{}".format(level.lower()))
+        self.metrics.increment_counter(f"logs.{level.lower()}")
         
         return entry
     
@@ -260,7 +260,7 @@ class ObservabilitySystem:
         self.traces[trace_id] = trace
         self.active_traces[trace_id] = trace
         
-        self.info("Trace started: {}".format(name), "tracer", {"trace_id": trace_id})
+        self.info(f"Trace started: {name}", "tracer", {"trace_id": trace_id})
         self.metrics.increment_counter("traces.started")
         
         return trace
@@ -272,7 +272,7 @@ class ObservabilitySystem:
             trace.finish()
             del self.active_traces[trace_id]
             
-            self.info("Trace ended: {}".format(trace.name), "tracer", {
+            self.info(f"Trace ended: {trace.name}", "tracer", {
                 "trace_id": trace_id,
                 "duration": trace.duration
             })
@@ -318,7 +318,7 @@ class ObservabilitySystem:
         metrics = self.get_metrics()
         
         # 计算错误率
-        total_logs = sum(metrics["counters"].get("logs.{}".format(level), 0) 
+        total_logs = sum(metrics["counters"].get(f"logs.{level}", 0)
                         for level in ["debug", "info", "warning", "error", "critical"])
         error_logs = metrics["counters"].get("logs.error", 0) + metrics["counters"].get("logs.critical", 0)
         error_rate = (error_logs / total_logs * 100) if total_logs > 0 else 0
@@ -394,7 +394,7 @@ def trace_function(name: str = None):
             except Exception as e:
                 span.set_attribute("success", False)
                 span.set_attribute("error", str(e))
-                obs.error("Error in {}: {}".format(func_name, str(e)), "tracer")
+                obs.error(f"Error in {func_name}: {e}", "tracer")
                 raise
             finally:
                 span.finish()
@@ -412,14 +412,14 @@ def log_function(level: str = LogLevel.INFO, module: str = None):
             func_name = func.__name__
             obs = get_observability_system()
             
-            obs.log(level, "Calling {}".format(func_name), module)
+            obs.log(level, f"Calling {func_name}", module)
             
             try:
                 result = func(*args, **kwargs)
-                obs.log(level, "{} completed successfully".format(func_name), module)
+                obs.log(level, f"{func_name} completed successfully", module)
                 return result
             except Exception as e:
-                obs.error("Error in {}: {}".format(func_name, str(e)), module)
+                obs.error(f"Error in {func_name}: {e}", module)
                 raise
         
         return wrapper

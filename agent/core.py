@@ -1,6 +1,7 @@
 """
 核心Agent类 - 直接使用requests调用OpenAI API
 """
+import os
 import json
 import requests
 from typing import Optional, List, Dict, Any, Generator
@@ -8,6 +9,10 @@ from typing import Optional, List, Dict, Any, Generator
 from .config import Config
 from .tools import execute_tool
 from .skills import get_skill_registry
+
+# 对话历史存储目录
+_HISTORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "chat_history")
+_MAX_HISTORY = 200  # 最大保存消息条数
 
 
 class Agent:
@@ -18,6 +23,7 @@ class Agent:
         config: Optional[Config] = None,
         system_prompt: Optional[str] = None,
         memory_size: int = 10,
+        history_id: str = "default",
     ):
         """
         初始化Agent
@@ -26,10 +32,12 @@ class Agent:
             config: 配置对象
             system_prompt: 系统提示词
             memory_size: 记忆窗口大小
+            history_id: 对话历史标识，用于持久化文件命名
         """
         self.config = config or Config()
         self.system_prompt = system_prompt or self._get_default_system_prompt()
         self.memory_size = memory_size
+        self._history_id = history_id
 
         # API配置
         self.api_key = self.config.api_key
@@ -38,8 +46,37 @@ class Agent:
         # 工具定义 - 只使用技能系统
         self.tools_schema = self._load_skills_tools()
 
-        # 对话历史
-        self.chat_history = []
+        # 对话历史（从文件恢复）
+        self.chat_history = self._load_history()
+
+    def _get_history_path(self) -> str:
+        """获取对话历史文件路径"""
+        os.makedirs(_HISTORY_DIR, exist_ok=True)
+        return os.path.join(_HISTORY_DIR, f"{self._history_id}.json")
+
+    def _load_history(self) -> list:
+        """从文件加载对话历史"""
+        path = self._get_history_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"警告: 加载对话历史失败({path}): {e}")
+            return []
+
+    def _save_history(self):
+        """将对话历史保存到文件（自动截断超限部分）"""
+        path = self._get_history_path()
+        try:
+            # 限制历史长度
+            if len(self.chat_history) > _MAX_HISTORY:
+                self.chat_history = self.chat_history[-_MAX_HISTORY:]
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.chat_history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存对话历史失败: {e}")
     
     def _load_skills_tools(self):
         """加载技能系统的工具"""
@@ -47,7 +84,7 @@ class Agent:
             skill_registry = get_skill_registry()
             return skill_registry.get_tools_schema()
         except Exception as e:
-            print("加载技能工具失败: {}".format(e))
+            print(f"加载技能工具失败: {e}")
             return []
 
     def _get_default_system_prompt(self):
@@ -71,7 +108,7 @@ class Agent:
         """调用OpenAI API"""
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer {}".format(self.api_key),
+            "Authorization": f"Bearer {self.api_key}",
         }
 
         data = {
@@ -86,7 +123,7 @@ class Agent:
             data["tools"] = self.tools_schema
             data["tool_choice"] = "auto"
 
-        url = "{}/chat/completions".format(self.base_url.rstrip("/"))
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
         response = requests.post(url, headers=headers, json=data, stream=stream, timeout=60)
         response.raise_for_status()
 
@@ -156,13 +193,13 @@ class Agent:
                         # 添加工具结果消息
                         tool_message = {
                             "role": "tool",
-                            "tool_call_id": call["id"] or "call_{}".format(function_name),
+                            "tool_call_id": call["id"] or f"call_{function_name}",
                             "content": tool_result,
                         }
                         messages.append(tool_message)
 
                         if self.config.verbose:
-                            print("[工具调用] {}({}) -> {}".format(function_name, arguments, tool_result))
+                            print(f"[工具调用] {function_name}({arguments}) -> {tool_result}")
                 else:
                     # 没有工具调用，返回最终回复
                     reply = assistant_message.get("content", "") or ""
@@ -174,18 +211,19 @@ class Agent:
                     
                     # 如果两者都有，组合返回
                     if reply and reasoning:
-                        reply = "【思考】{}\n\n【回答】{}".format(reasoning, reply)
+                        reply = f"【思考】{reasoning}\n\n【回答】{reply}"
 
                     # 保存到对话历史
                     self.chat_history.append({"role": "user", "content": message})
                     self.chat_history.append({"role": "assistant", "content": reply})
+                    self._save_history()
 
                     return reply
 
             return "达到最大迭代次数，请重试"
 
         except Exception as e:
-            return "抱歉，处理您的请求时出现了错误: {}".format(str(e))
+            return f"抱歉，处理您的请求时出现了错误: {e}"
 
     def chat_stream(self, message):
         """
@@ -223,20 +261,22 @@ class Agent:
             # 保存到对话历史
             self.chat_history.append({"role": "user", "content": message})
             self.chat_history.append({"role": "assistant", "content": full_reply})
+            self._save_history()
 
         except Exception as e:
-            yield "抱歉，处理您的请求时出现了错误: {}".format(str(e))
+            yield f"抱歉，处理您的请求时出现了错误: {e}"
 
     def clear_memory(self):
         """清除对话历史"""
         self.chat_history.clear()
+        self._save_history()
 
     def get_chat_history(self):
         """获取对话历史"""
         return self.chat_history.copy()
 
     def __repr__(self):
-        return "Agent(model={}, memory={})".format(self.config.model_name, self.memory_size)
+        return f"Agent(model={self.config.model_name}, memory={self.memory_size})"
 
 
 class ReActAgent:
@@ -274,6 +314,7 @@ Answer: [最终回答]
         config: Optional[Config] = None,
         memory_size: int = 10,
         max_iterations: int = 5,
+        history_id: str = "react",
     ):
         """
         初始化ReAct Agent
@@ -282,20 +323,47 @@ Answer: [最终回答]
             config: 配置对象
             memory_size: 记忆窗口大小
             max_iterations: 最大思考-行动循环次数
+            history_id: 对话历史标识
         """
         self.config = config or Config()
         self.memory_size = memory_size
         self.max_iterations = max_iterations
+        self._history_id = history_id
 
         # API配置
         self.api_key = self.config.api_key
         self.base_url = self.config.base_url or "https://api.openai.com/v1"
 
-        # 对话历史
-        self.chat_history = []
+        # 对话历史（从文件恢复）
+        self.chat_history = self._load_history()
 
         # 构建系统提示词
         self.system_prompt = self._build_system_prompt()
+
+    def _get_history_path(self) -> str:
+        os.makedirs(_HISTORY_DIR, exist_ok=True)
+        return os.path.join(_HISTORY_DIR, f"{self._history_id}.json")
+
+    def _load_history(self) -> list:
+        path = self._get_history_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"警告: 加载对话历史失败({path}): {e}")
+            return []
+
+    def _save_history(self):
+        path = self._get_history_path()
+        try:
+            if len(self.chat_history) > _MAX_HISTORY:
+                self.chat_history = self.chat_history[-_MAX_HISTORY:]
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.chat_history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存对话历史失败: {e}")
 
     def _build_system_prompt(self):
         """构建ReAct系统提示词"""
@@ -305,7 +373,7 @@ Answer: [最终回答]
         try:
             skill_registry = get_skill_registry()
             for skill in skill_registry.list_skills():
-                tools_desc.append("- {}: {}".format(skill["name"], skill["description"]))
+                tools_desc.append(f"- {skill['name']}: {skill['description']}")
         except Exception:
             pass
         
@@ -329,7 +397,7 @@ Answer: [最终回答]
         """调用API"""
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer {}".format(self.api_key),
+            "Authorization": f"Bearer {self.api_key}",
         }
 
         data = {
@@ -339,7 +407,7 @@ Answer: [最终回答]
             "stream": stream,
         }
 
-        url = "{}/chat/completions".format(self.base_url.rstrip("/"))
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
         response = requests.post(url, headers=headers, json=data, stream=stream, timeout=60)
         response.raise_for_status()
 
@@ -424,7 +492,7 @@ Answer: [最终回答]
                         # 添加到消息历史 - 只添加Thought和Action部分
                         action_part = reply.split("Observation:")[0].strip() if "Observation:" in reply else reply
                         messages.append({"role": "assistant", "content": action_part})
-                        messages.append({"role": "user", "content": "Observation: {}".format(observation)})
+                        messages.append({"role": "user", "content": f"Observation: {observation}"})
                         
                         continue
                 
@@ -444,7 +512,7 @@ Answer: [最终回答]
                         
                         # 添加到消息历史 - 使用真正的Observation
                         messages.append({"role": "assistant", "content": action_part})
-                        messages.append({"role": "user", "content": "Observation: {}".format(observation)})
+                        messages.append({"role": "user", "content": f"Observation: {observation}"})
                         
                         continue
                 
@@ -459,7 +527,8 @@ Answer: [最终回答]
             # 保存到对话历史
             self.chat_history.append({"role": "user", "content": message})
             self.chat_history.append({"role": "assistant", "content": final_answer})
-            
+            self._save_history()
+
             return {
                 "thoughts": thoughts,
                 "answer": final_answer
@@ -468,7 +537,7 @@ Answer: [最终回答]
         except Exception as e:
             return {
                 "thoughts": [],
-                "answer": "抱歉，处理您的请求时出现了错误: {}".format(str(e))
+                "answer": f"抱歉，处理您的请求时出现了错误: {e}"
             }
 
     def chat_stream(self, message):
@@ -527,27 +596,27 @@ Answer: [最终回答]
                         # 执行工具
                         from .tools import execute_tool
                         observation = execute_tool(tool_name, **args)
-                        yield {"type": "observation", "content": "\n\n**执行工具 {}：**\n{}".format(tool_name, observation)}
-                        
+                        yield {"type": "observation", "content": f"\n\n**执行工具 {tool_name}：**\n{observation}"}
+
                         # 添加到消息历史
                         messages.append({"role": "assistant", "content": full_reply})
-                        messages.append({"role": "user", "content": "Observation: {}".format(observation)})
+                        messages.append({"role": "user", "content": f"Observation: {observation}"})
                         continue
-                
+
                 # 如果AI自己生成了Observation，使用真正的工具结果
                 if "Action:" in full_reply and "Observation:" in full_reply:
                     action_part = full_reply.split("Observation:")[0].strip()
                     tool_name, args = self._parse_action(action_part)
-                    
+
                     if tool_name:
                         # 执行工具
                         from .tools import execute_tool
                         observation = execute_tool(tool_name, **args)
-                        yield {"type": "observation", "content": "\n\n**执行工具 {}：**\n{}".format(tool_name, observation)}
-                        
+                        yield {"type": "observation", "content": f"\n\n**执行工具 {tool_name}：**\n{observation}"}
+
                         # 添加到消息历史
                         messages.append({"role": "assistant", "content": action_part})
-                        messages.append({"role": "user", "content": "Observation: {}".format(observation)})
+                        messages.append({"role": "user", "content": f"Observation: {observation}"})
                         continue
                 
                 # 直接回答（没有Action）
@@ -558,17 +627,19 @@ Answer: [最终回答]
             if final_answer:
                 self.chat_history.append({"role": "user", "content": message})
                 self.chat_history.append({"role": "assistant", "content": final_answer})
+                self._save_history()
 
         except Exception as e:
-            yield {"type": "answer", "content": "\n\n抱歉，处理您的请求时出现了错误: {}".format(str(e))}
+            yield {"type": "answer", "content": f"\n\n抱歉，处理您的请求时出现了错误: {e}"}
 
     def clear_memory(self):
         """清除对话历史"""
         self.chat_history.clear()
+        self._save_history()
 
     def get_chat_history(self):
         """获取对话历史"""
         return self.chat_history.copy()
 
     def __repr__(self):
-        return "ReActAgent(model={}, max_iterations={})".format(self.config.model_name, self.max_iterations)
+        return f"ReActAgent(model={self.config.model_name}, max_iter={self.max_iterations})"

@@ -152,7 +152,7 @@ class MultiAgentSystem:
         
         # 获取可用角色描述
         roles_desc = "\n".join([
-            "- {}: {}".format(name, role.description) 
+            f"- {name}: {role.description}"
             for name, role in PREDEFINED_ROLES.items()
         ])
         
@@ -267,32 +267,55 @@ class MultiAgentSystem:
         result["coordinator_response"] = coordinator_response
         
         # 2. 检查是否需要其他Agent协助
-        # 优化的任务分配逻辑：根据关键词分配，增加权重和默认角色
+        # 改进的任务分配：加权关键词 + 最低匹配阈值
         agent_keywords = {
-            "researcher": ["研究", "调查", "搜索", "查找", "了解", "探索", "学习"],
-            "writer": ["写", "撰写", "创作", "文章", "报告", "文案", "编写", "生成"],
-            "analyst": ["分析", "评估", "诊断", "解决", "方案", "优化", "改进", "评估"],
-            "assistant": ["帮助", "协助", "请问", "怎么", "如何", "是什么", "什么是", "介绍"]
+            "researcher": {
+                "研究": 3, "调查": 3, "搜索": 2, "查找": 2,
+                "了解": 1, "探索": 2, "学习": 1, "调研": 3,
+                "搜集": 2, "资料": 2
+            },
+            "writer": {
+                "写": 3, "撰写": 3, "创作": 3, "文章": 3,
+                "报告": 2, "文案": 3, "编写": 3, "生成文章": 3,
+                "写一篇": 3, "起草": 3, "作文": 3
+            },
+            "analyst": {
+                "分析": 3, "评估": 2, "诊断": 3, "解决": 2,
+                "方案": 2, "优化": 3, "改进": 2, "对比": 2,
+                "数据": 2, "统计": 2, "趋势": 2
+            },
+            "assistant": {
+                "帮助": 1, "协助": 1, "请问": 1, "怎么": 1,
+                "如何": 1, "是什么": 1, "什么是": 1, "介绍": 1
+            }
         }
-        
-        # 找出最匹配的角色
-        matched_role = None
-        max_matches = 0
-        
+
+        # 计算加权匹配分数
+        scores = {}
         for role, keywords in agent_keywords.items():
-            matches = sum(1 for keyword in keywords if keyword in message)
-            if matches > max_matches:
-                max_matches = matches
-                matched_role = role
-        
-        # 如果没有匹配到任何角色，默认使用助手
+            score = sum(weight for kw, weight in keywords.items() if kw in message)
+            if score > 0:
+                scores[role] = score
+
+        # 只有最高分超过阈值且明显高于其他角色时才分配
+        matched_role = None
+        if scores:
+            sorted_roles = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            best_role, best_score = sorted_roles[0]
+            second_score = sorted_roles[1][1] if len(sorted_roles) > 1 else 0
+            # 最高分 >= 3 且至少比第二名高 2 分，才分配给专业角色
+            if best_score >= 3 and best_score - second_score >= 2:
+                matched_role = best_role
+
+        # 如果没有明确匹配，让协调者直接回答
         if matched_role is None:
-            matched_role = "assistant"
+            result["final_answer"] = coordinator_response
+            return result
         
         # 3. 如果匹配到角色，分配任务
         if matched_role and matched_role in PREDEFINED_ROLES:
             # 自动创建Agent（如果不存在）
-            agent_id = "agent_{}".format(matched_role)
+            agent_id = f"agent_{matched_role}"
             if agent_id not in self.agents:
                 self.add_agent(agent_id, matched_role)
             
@@ -313,17 +336,12 @@ class MultiAgentSystem:
             }
             
             # 4. 协调者整合结果
-            integration_prompt = """用户问题：{user_message}
-
-协调者分析：{coordinator_response}
-
-{role}的回答：{agent_response}
-
-请整合以上信息，给出一个完整的最终回答。""".format(
-                user_message=message,
-                coordinator_response=coordinator_response,
-                role=self.roles[agent_id].name,
-                agent_response=agent_response
+            role_name = self.roles[agent_id].name
+            integration_prompt = (
+                f"用户问题：{message}\n\n"
+                f"协调者分析：{coordinator_response}\n\n"
+                f"{role_name}的回答：{agent_response}\n\n"
+                "请整合以上信息，给出一个完整的最终回答。"
             )
             
             final_response = coordinator.chat(integration_prompt)
@@ -376,10 +394,10 @@ class MultiAgentSystem:
             matched_role = "assistant"
         
         if matched_role:
-            yield {"type": "status", "content": "正在调用{}处理...".format(PREDEFINED_ROLES[matched_role].name)}
+            yield {"type": "status", "content": f"正在调用{PREDEFINED_ROLES[matched_role].name}处理..."}
             
             # 创建Agent并执行
-            agent_id = "agent_{}".format(matched_role)
+            agent_id = f"agent_{matched_role}"
             if agent_id not in self.agents:
                 self.add_agent(agent_id, matched_role)
             

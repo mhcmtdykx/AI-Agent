@@ -107,7 +107,7 @@ class EvaluationSystem:
                     self.conversations = [ConversationRecord(**item) for item in data]
                     self._update_stats()
             except Exception as e:
-                print("加载对话记录失败: {}".format(e))
+                print(f"加载对话记录失败: {e}")
         
         # 加载指标记录
         metrics_file = self._get_metrics_file()
@@ -117,7 +117,7 @@ class EvaluationSystem:
                     data = json.load(f)
                     self.metrics = [MetricRecord(**item) for item in data]
             except Exception as e:
-                print("加载指标记录失败: {}".format(e))
+                print(f"加载指标记录失败: {e}")
     
     def _save_data(self):
         """保存数据"""
@@ -127,7 +127,7 @@ class EvaluationSystem:
             with open(conv_file, 'w', encoding='utf-8') as f:
                 json.dump([c.to_dict() for c in self.conversations], f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print("保存对话记录失败: {}".format(e))
+            print(f"保存对话记录失败: {e}")
         
         # 保存指标记录
         metrics_file = self._get_metrics_file()
@@ -135,7 +135,7 @@ class EvaluationSystem:
             with open(metrics_file, 'w', encoding='utf-8') as f:
                 json.dump([m.to_dict() for m in self.metrics], f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print("保存指标记录失败: {}".format(e))
+            print(f"保存指标记录失败: {e}")
     
     def _update_stats(self):
         """更新统计数据"""
