@@ -15,7 +15,7 @@ load_env_file(".env")
 
 from flask import Flask, request, Response, send_file
 from agent import (
-    Agent, ReActAgent, Config, rag_system, get_rag_system,
+    Agent, ReActAgent, Config, rag_system,
     get_multi_agent_system, get_long_term_memory,
     get_evaluation_system, get_observability_system,
     get_skill_registry, get_mcp_server, get_mcp_client
@@ -83,6 +83,149 @@ class SessionManager:
 
 
 session_mgr = SessionManager(config)
+
+# ========== RAG 提示词模板 ==========
+RAG_PROMPT_TEMPLATES = {
+    "default": """请基于以下参考资料回答用户的问题。
+
+指南：
+1. 答案必须完全基于提供的参考资料，不要添加任何不在参考资料中的内容。
+2. 尽可能使用参考资料中的原文，保持答案的准确性。
+3. 保持回答简洁，不超过参考资料的1.5倍长度，绝对不超过2.5倍长度。
+4. 如果涉及数字、日期或具体数据，务必准确包含。
+5. 如果参考资料不足以回答问题，请直接说明"根据提供的信息无法回答该问题"。
+6. 不要使用"根据提供的信息"、"参考资料显示"等前缀，直接给出答案。
+
+参考资料：
+···
+{context}
+···
+
+问题：{question}
+
+回答：""",
+
+    "precise": """作为一个精确的RAG系统助手，请严格按照以下指南回答用户问题：
+
+1. 仔细分析问题，识别关键词和核心概念。
+2. 从提供的参考资料中精确定位相关信息，优先使用完全匹配的内容。
+3. 构建回答时，确保包含所有必要的关键词。
+4. 保持回答与原文的语义相似度。
+5. 控制回答长度，理想情况下不超过参考资料长度的1.5倍，最多不超过2.5倍。
+6. 对于表格查询或需要多段落综合的问题，给予特别关注并提供更全面的回答。
+7. 如果参考资料信息不足，可以进行合理推理，但要明确指出推理部分。
+8. 回答应简洁、准确、完整，直接解答问题，避免不必要的解释。
+9. 不要输出"检索到的文本块"、"根据"、"信息"等前缀修饰句，直接输出答案。
+10. 不要使用"根据提供的信息"、"参考资料显示"等前缀，直接给出答案。
+
+问题: {question}
+
+参考资料：
+···
+{context}
+···
+
+请提供准确、相关且简洁的回答：""",
+
+    "concise": """请结合参考资料回答用户问题，确保答案的准确性、全面性和权威性。
+如果参考资料不能支撑用户问题，或者没有相关信息，请明确说明问题无法回答，避免生成虚假信息。
+只输出答案，尽量包括关键词，不要输出额外内容，不要过多解释，不要输出额外无关文字以及过多修饰。
+如果给定的参考资料无法让你做出回答，请直接回答："无法回答。"，不要输出额外内容。
+
+问题: {question}
+参考资料：
+···
+{context}
+···
+简明准确的回答："""
+}
+
+# 当前使用的 RAG 提示词模板
+rag_prompt_mode = "default"
+
+# ========== 用户级资源管理 ==========
+class UserResourceManager:
+    """按用户隔离 RAG 和长期记忆"""
+
+    def __init__(self, base_path="user_storage"):
+        self.base_path = base_path
+        self._rag_instances = {}   # user_id -> RAGSystem
+        self._memory_instances = {}  # user_id -> LongTermMemory
+        self._lock = threading.Lock()
+        os.makedirs(base_path, exist_ok=True)
+
+    def get_rag(self, user_id: str):
+        """获取用户的 RAG 实例"""
+        if not user_id:
+            return rag_system  # 未登录用户使用全局实例
+        with self._lock:
+            if user_id not in self._rag_instances:
+                from agent.rag import RAGSystem
+                instance = RAGSystem()
+                # 尝试加载用户数据
+                user_rag_path = os.path.join(self.base_path, user_id, "rag")
+                if os.path.exists(user_rag_path):
+                    self._load_user_rag(instance, user_rag_path)
+                self._rag_instances[user_id] = instance
+            return self._rag_instances[user_id]
+
+    def get_memory(self, user_id: str):
+        """获取用户的长期记忆实例"""
+        if not user_id:
+            return long_term_memory  # 未登录用户使用全局实例
+        with self._lock:
+            if user_id not in self._memory_instances:
+                from agent.memory import LongTermMemory
+                user_memory_path = os.path.join(self.base_path, user_id, "memory")
+                instance = LongTermMemory(storage_path=user_memory_path)
+                self._memory_instances[user_id] = instance
+            return self._memory_instances[user_id]
+
+    def _load_user_rag(self, instance, path):
+        """加载用户的 RAG 数据"""
+        data_file = os.path.join(path, "documents.json")
+        if os.path.exists(data_file):
+            try:
+                import json as _json
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    docs_data = _json.load(f)
+                from agent.rag import Document
+                docs = [Document(d["content"], d.get("metadata", {})) for d in docs_data]
+                if docs:
+                    instance.load_documents(docs)
+            except Exception as e:
+                print(f"加载用户RAG数据失败: {e}")
+
+    def save_user_rag(self, user_id: str):
+        """保存用户的 RAG 数据"""
+        if not user_id or user_id not in self._rag_instances:
+            return
+        instance = self._rag_instances[user_id]
+        user_rag_path = os.path.join(self.base_path, user_id, "rag")
+        os.makedirs(user_rag_path, exist_ok=True)
+        data_file = os.path.join(user_rag_path, "documents.json")
+        try:
+            import json as _json
+            docs_data = [{"content": d.content, "metadata": d.metadata} for d in instance.vector_store.documents]
+            with open(data_file, 'w', encoding='utf-8') as f:
+                _json.dump(docs_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存用户RAG数据失败: {e}")
+
+    def clear_user_rag(self, user_id: str):
+        """清空用户的 RAG 数据"""
+        if user_id and user_id in self._rag_instances:
+            self._rag_instances[user_id].clear()
+            self.save_user_rag(user_id)
+
+    def clear_user_memory(self, user_id: str):
+        """清空用户的记忆数据"""
+        if user_id and user_id in self._memory_instances:
+            self._memory_instances[user_id].clear()
+
+
+user_resources = UserResourceManager()
+
 
 # 当前设置（使用锁保护，确保线程安全）
 _settings_lock = threading.Lock()
@@ -196,6 +339,18 @@ def mode():
         })
 
 # ========== RAG API ==========
+@app.route("/api/rag/prompt-mode", methods=["GET", "POST"])
+def rag_prompt_mode_api():
+    global rag_prompt_mode
+    if request.method == "POST":
+        data = request.get_json()
+        new_mode = data.get("mode", "default")
+        if new_mode in RAG_PROMPT_TEMPLATES:
+            rag_prompt_mode = new_mode
+            return json.dumps({"status": "ok", "mode": rag_prompt_mode})
+        return json.dumps({"error": "无效的模式"}), 400
+    return json.dumps({"mode": rag_prompt_mode, "available": list(RAG_PROMPT_TEMPLATES.keys())})
+
 @app.route("/api/rag/upload", methods=["POST"])
 @app.route("/api/rag/add-text", methods=["POST"])
 def rag_upload():
@@ -237,11 +392,18 @@ def rag_upload():
         return json.dumps({"error": "内容不能为空"}), 400
     
     try:
+        # 获取当前用户的RAG实例
         current_user = get_current_user()
         user_id = current_user["user_id"] if current_user else None
-        user_rag = get_rag_system(user_id)
+        user_rag = user_resources.get_rag(user_id)
+        
         chunk_count = user_rag.load_text(content, {"title": title, "source": "upload"})
-        observability.info(f"RAG文档上传: {title}", "rag")
+        
+        # 保存用户RAG数据
+        if user_id:
+            user_resources.save_user_rag(user_id)
+        
+        observability.info(f"RAG文档上传: {title} (user: {user_id or 'global'})", "rag")
         return json.dumps({
             "status": "ok",
             "chunk_count": chunk_count,
@@ -280,7 +442,8 @@ def rag_search():
     try:
         current_user = get_current_user()
         user_id = current_user["user_id"] if current_user else None
-        user_rag = get_rag_system(user_id)
+        user_rag = user_resources.get_rag(user_id)
+        
         results = user_rag.search(query, top_k)
         formatted_results = []
         for doc, score in results:
@@ -297,15 +460,17 @@ def rag_search():
 def rag_stats():
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_rag = get_rag_system(user_id)
+    user_rag = user_resources.get_rag(user_id)
     return json.dumps(user_rag.get_stats())
 
 @app.route("/api/rag/clear", methods=["POST"])
 def rag_clear():
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_rag = get_rag_system(user_id)
-    user_rag.clear()
+    if user_id:
+        user_resources.clear_user_rag(user_id)
+    else:
+        rag_system.clear()
     return json.dumps({"status": "ok", "message": "知识库已清空"})
 
 # ========== Multi-Agent API ==========
@@ -353,7 +518,7 @@ def multi_agent_messages():
 def memory_stats():
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_memory = get_long_term_memory(user_id)
+    user_memory = user_resources.get_memory(user_id)
     return json.dumps(user_memory.get_stats())
 
 @app.route("/api/memory/search", methods=["POST"])
@@ -367,7 +532,8 @@ def memory_search():
     
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_memory = get_long_term_memory(user_id)
+    user_memory = user_resources.get_memory(user_id)
+    
     results = user_memory.search(query, top_k)
     formatted_results = [
         {
@@ -385,15 +551,17 @@ def memory_recent():
     limit = int(request.args.get("limit", 10))
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_memory = get_long_term_memory(user_id)
+    user_memory = user_resources.get_memory(user_id)
     return json.dumps(user_memory.get_recent_memories(limit))
 
 @app.route("/api/memory/clear", methods=["POST"])
 def memory_clear():
     current_user = get_current_user()
     user_id = current_user["user_id"] if current_user else None
-    user_memory = get_long_term_memory(user_id)
-    user_memory.clear()
+    if user_id:
+        user_resources.clear_user_memory(user_id)
+    else:
+        long_term_memory.clear()
     return json.dumps({"status": "ok", "message": "长期记忆已清空"})
 
 # ========== Evaluation API ==========
@@ -650,33 +818,31 @@ def chat():
         observability.error(f"处理请求错误: {e}", "chat")
         return json.dumps({"error": f"处理请求失败: {e}"}), 400
     
-    # 获取RAG上下文
+    # 获取RAG上下文（使用用户级资源）
     rag_context = ""
-    user_rag = get_rag_system(user_id)
+    user_rag = user_resources.get_rag(user_id)
     if enable_rag and user_rag.is_loaded:
         rag_context = user_rag.get_context(message, top_k=3)
     
-    # 获取长期记忆上下文
+    # 获取长期记忆上下文（使用用户级资源）
     memory_context = ""
     if enable_memory:
-        user_memory = get_long_term_memory(user_id)
+        user_memory = user_resources.get_memory(user_id)
         memory_context = user_memory.get_context(message, top_k=3)
     
-    # 构建增强消息
+    # 构建增强消息（使用专业RAG提示词模板）
     enhanced_message = message
-    context_parts = []
     
     if rag_context:
-        context_parts.append(f"参考资料：\n{rag_context}")
-    if memory_context:
-        context_parts.append(f"历史相关记录：\n{memory_context}")
-    
-    if context_parts:
-        context_str = "\n\n".join(context_parts)
+        # 使用RAG提示词模板
+        template = RAG_PROMPT_TEMPLATES.get(rag_prompt_mode, RAG_PROMPT_TEMPLATES["default"])
+        enhanced_message = template.format(context=rag_context, question=message)
+    elif memory_context:
+        # 仅有记忆上下文时
         enhanced_message = (
-            f"请参考以下信息回答用户的问题：\n\n"
-            f"{context_str}\n\n"
-            f"用户问题：{message}"
+            f"请参考以下历史相关记录回答当前问题：\n\n"
+            f"历史相关记录：\n{memory_context}\n\n"
+            f"当前问题：{message}"
         )
     
     # 选择Agent
@@ -734,7 +900,7 @@ def chat():
                         if len(history) >= 2:
                             last_reply = history[-1].get("content", "")
                             if last_reply:
-                                user_memory = get_long_term_memory(user_id)
+                                user_memory = user_resources.get_memory(user_id)
                                 user_memory.add_conversation(message, last_reply)
                     
                 except Exception as e:
@@ -766,7 +932,7 @@ def chat():
             
             # 保存到长期记忆
             if enable_memory:
-                user_memory = get_long_term_memory(user_id)
+                user_memory = user_resources.get_memory(user_id)
                 user_memory.add_conversation(message, result.get("response", ""))
             
             return json.dumps(result, ensure_ascii=False)
@@ -790,18 +956,14 @@ def clear():
 @app.route("/api/status", methods=["GET"])
 def status():
     """系统状态"""
-    current_user = get_current_user()
-    user_id = current_user["user_id"] if current_user else None
-    user_rag = get_rag_system(user_id)
-    user_memory = get_long_term_memory(user_id)
     return json.dumps({
         "mode": current_mode,
         "rag": use_rag,
         "memory": use_memory,
         "health": observability.get_system_health(),
         "stats": {
-            "rag": user_rag.get_stats(),
-            "memory": user_memory.get_stats(),
+            "rag": rag_system.get_stats(),
+            "memory": long_term_memory.get_stats(),
             "evaluation": evaluation.get_stats()
         }
     })
