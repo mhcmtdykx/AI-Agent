@@ -28,18 +28,18 @@ class MetricRecord:
 
 class ConversationRecord:
     """对话记录"""
-    def __init__(self, session_id: str, user_message: str, ai_response: str):
+    def __init__(self, session_id: str, user_message: str, ai_response: str, **kwargs):
         self.session_id = session_id
         self.user_message = user_message
         self.ai_response = ai_response
-        self.timestamp = datetime.now().isoformat()
-        self.latency = 0  # 响应延迟（秒）
-        self.token_count = 0  # token数量
-        self.tool_calls = []  # 工具调用
-        self.success = True  # 是否成功
-        self.error_message = None  # 错误信息
-        self.user_rating = None  # 用户评分 (1-5)
-        self.feedback = None  # 用户反馈
+        self.timestamp = kwargs.get('timestamp', datetime.now().isoformat())
+        self.latency = kwargs.get('latency', 0)  # 响应延迟（秒）
+        self.token_count = kwargs.get('token_count', 0)  # token数量
+        self.tool_calls = kwargs.get('tool_calls', [])  # 工具调用
+        self.success = kwargs.get('success', True)  # 是否成功
+        self.error_message = kwargs.get('error_message', None)  # 错误信息
+        self.user_rating = kwargs.get('user_rating', None)  # 用户评分 (1-5)
+        self.feedback = kwargs.get('feedback', None)  # 用户反馈
     
     def to_dict(self) -> Dict:
         return {

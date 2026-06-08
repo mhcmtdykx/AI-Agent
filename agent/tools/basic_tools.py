@@ -223,10 +223,11 @@ def execute_tool(tool_name, **kwargs):
         from ..mcp import get_mcp_client
         client = get_mcp_client()
         tools = client.list_tools()
-        tool_names = [t.get("name") for t in tools]
-        if tool_name in tool_names:
-            result = client.call_tool(tool_name, kwargs)
-            return str(result) if result else "工具执行完成"
+        if isinstance(tools, list):
+            tool_names = [t.get("name") for t in tools if isinstance(t, dict)]
+            if tool_name in tool_names:
+                result = client.call_tool(tool_name, kwargs)
+                return str(result) if result else "工具执行完成"
     except Exception:
         pass
 
@@ -237,7 +238,7 @@ def execute_tool(tool_name, **kwargs):
         for server_name in client.servers:
             try:
                 tools = client.list_tools(server_name)
-                if any(t.get("name") == tool_name for t in tools):
+                if isinstance(tools, list) and any(isinstance(t, dict) and t.get("name") == tool_name for t in tools):
                     mcp_result = client.call_tool(server_name, tool_name, kwargs)
                     if mcp_result:
                         if isinstance(mcp_result, dict):

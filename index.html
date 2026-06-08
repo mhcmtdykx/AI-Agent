@@ -222,87 +222,17 @@ body.light .noise{opacity:.02}
 ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
 /* Responsive */
 @media(max-width:900px){.snav{display:none}.conv-list{display:none}.chat-msgs{padding:16px}.chat-input{padding:10px 16px 14px}.ph{padding:10px 16px}}
-/* Auth Overlay */
-.auth-overlay{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .3s}
-.auth-overlay.hidden{opacity:0;pointer-events:none}
-.auth-container{width:380px;max-width:90vw;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r2);padding:40px 32px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
-.auth-logo{text-align:center;margin-bottom:32px}
-.auth-logo .logo-icon{width:56px;height:56px;margin:0 auto 16px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--sage));display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:#fff;font-family:var(--fd);box-shadow:0 8px 30px var(--accent-g)}
-.auth-logo h1{font-family:var(--fd);font-size:22px;font-weight:700;background:linear-gradient(135deg,var(--t1),var(--accent-l));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.auth-logo p{font-size:12px;color:var(--t3);margin-top:4px}
-.auth-tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--bg3);border-radius:var(--r1);padding:4px}
-.auth-tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:600;color:var(--t3);cursor:pointer;border-radius:6px;transition:all .2s}
-.auth-tab.active{background:var(--accent);color:#fff}
-.auth-form{display:none}.auth-form.active{display:block}
-.auth-form .fgroup{margin-bottom:16px}
-.auth-form .fgroup input{padding:11px 14px;font-size:14px}
-.auth-btn{width:100%;padding:12px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:none;border-radius:var(--r1);cursor:pointer;transition:all .2s;margin-top:8px}
-.auth-btn:hover{background:var(--accent-l);transform:translateY(-1px)}
-.auth-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.auth-error{color:#ef5350;font-size:12px;text-align:center;margin-top:12px;min-height:18px}
-.auth-success{color:#4caf50;font-size:12px;text-align:center;margin-top:12px;min-height:18px}
-/* User Menu */
-.user-menu{position:relative}
-.user-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r1);cursor:pointer;transition:all .2s;font-size:13px;color:var(--t2)}
-.user-btn:hover{background:var(--bg4);color:var(--t1)}
-.user-btn .avatar{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--sage));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff}
-.user-dropdown{display:none;position:absolute;bottom:calc(100% + 8px);left:0;right:0;background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r1);padding:8px;min-width:160px;box-shadow:0 -4px 20px rgba(0,0,0,.2)}
-.user-dropdown.show{display:block}
-.user-dropdown .dd-item{padding:8px 12px;font-size:12px;color:var(--t2);cursor:pointer;border-radius:6px;transition:all .15s}
-.user-dropdown .dd-item:hover{background:var(--bg4);color:var(--t1)}
-.user-dropdown .dd-item.danger{color:#ef5350}
-.user-dropdown .dd-item.danger:hover{background:rgba(239,83,80,.1)}
 </style>
 </head>
 <body>
-<!-- Auth Overlay -->
-<div class="auth-overlay" id="authOverlay">
-  <div class="auth-container">
-    <div class="auth-logo">
-      <div class="logo-icon">P</div>
-      <h1>光子</h1>
-      <p>Photon AI Agent</p>
-    </div>
-    <div class="auth-tabs">
-      <div class="auth-tab active" onclick="switchAuthTab('login')">登录</div>
-      <div class="auth-tab" onclick="switchAuthTab('register')">注册</div>
-    </div>
-    <form class="auth-form active" id="loginForm" onsubmit="handleLogin(event)">
-      <div class="fgroup">
-        <input type="text" id="loginUsername" placeholder="用户名" required autocomplete="username">
-      </div>
-      <div class="fgroup">
-        <input type="password" id="loginPassword" placeholder="密码" required autocomplete="current-password">
-      </div>
-      <button type="submit" class="auth-btn" id="loginBtn">登录</button>
-    </form>
-    <form class="auth-form" id="registerForm" onsubmit="handleRegister(event)">
-      <div class="fgroup">
-        <input type="text" id="regUsername" placeholder="用户名（至少2个字符）" required autocomplete="username">
-      </div>
-      <div class="fgroup">
-        <input type="email" id="regEmail" placeholder="邮箱（可选）" autocomplete="email">
-      </div>
-      <div class="fgroup">
-        <input type="password" id="regPassword" placeholder="密码（至少6个字符）" required autocomplete="new-password">
-      </div>
-      <div class="fgroup">
-        <input type="password" id="regPassword2" placeholder="确认密码" required autocomplete="new-password">
-      </div>
-      <button type="submit" class="auth-btn" id="registerBtn">注册</button>
-    </form>
-    <div class="auth-error" id="authError"></div>
-    <div class="auth-success" id="authSuccess"></div>
-  </div>
-</div>
 <div class="noise"></div>
 <div class="diag"></div>
 <div class="app">
 <!-- Sidebar Navigation -->
 <aside class="snav">
   <div class="snav-brand">
-    <div class="bm">P</div>
-    <div><div class="bn">光子</div><div class="bs">Photon AI Agent</div></div>
+    <div class="bm">G</div>
+    <div><div class="bn">光子</div><div class="bs">GuangZi AI Agent</div></div>
   </div>
   <nav class="snav-nav">
     <div class="ni active" data-page="chat" onclick="switchPage('chat')">
@@ -329,15 +259,6 @@ body.light .noise{opacity:.02}
   <div class="snav-foot">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">就绪</span>
-  </div>
-  <div class="user-menu" id="userMenu" style="padding:10px 12px;border-top:1px solid var(--bdr)">
-    <div class="user-btn" onclick="toggleUserDropdown()">
-      <div class="avatar" id="userAvatar">?</div>
-      <span id="userName">未登录</span>
-    </div>
-    <div class="user-dropdown" id="userDropdown">
-      <div class="dd-item danger" onclick="handleLogout()">退出登录</div>
-    </div>
   </div>
 </aside>
 
@@ -520,7 +441,6 @@ marked.setOptions({highlight:function(c,l){if(l&&hljs.getLanguage(l)){try{return
 function renderMarkdown(t){try{const h=marked.parse(t);return h.replace(/<pre><code class="language-(\w+)">/g,'<div class="code-hdr"><span class="code-lang">$1</span><button class="btn-copy" onclick="copyCode(this)">复制</button></div><pre><code class="language-$1">')}catch(e){return escapeHtml(t)}}
 function copyCode(b){const c=b.closest('.code-hdr').nextElementSibling.querySelector('code');navigator.clipboard.writeText(c.textContent).then(()=>{b.textContent='已复制';b.classList.add('copied');setTimeout(()=>{b.textContent='复制';b.classList.remove('copied')},2000)})}
 let isStreaming=false,abortController=null,isDarkTheme=true,quickCmdsOpen=false,thinkMode=false;
-let authToken=localStorage.getItem('authToken')||null,currentUser=JSON.parse(localStorage.getItem('currentUser')||'null');
 const shortcuts={'ctrl+enter':sendMessage,'ctrl+l':clearChat,'ctrl+n':createNewChat,'ctrl+shift+t':toggleTheme};
 let currentChatId=null,chatHistory=[],selectedFiles=[];
 const QUICK_COMMANDS=[
@@ -533,21 +453,7 @@ const QUICK_COMMANDS=[
   {cmd:'/mermaid',desc:'生成图表',action:()=>{userInput.value='用Mermaid画一个流程图：';userInput.focus()}}
 ];
 
-window.onload=function(){checkAuth();loadChatHistory();loadTheme();initShortcuts();loadThinkMode();loadAllStats();checkHealth()};
-
-// Auth Functions
-function checkAuth(){if(authToken&&currentUser){hideAuthOverlay();updateUserUI()}else{showAuthOverlay()}}
-function showAuthOverlay(){document.getElementById('authOverlay').classList.remove('hidden')}
-function hideAuthOverlay(){document.getElementById('authOverlay').classList.add('hidden')}
-function switchAuthTab(tab){document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.auth-form').forEach(f=>f.classList.remove('active'));if(tab==='login'){document.querySelectorAll('.auth-tab')[0].classList.add('active');document.getElementById('loginForm').classList.add('active')}else{document.querySelectorAll('.auth-tab')[1].classList.add('active');document.getElementById('registerForm').classList.add('active')}document.getElementById('authError').textContent='';document.getElementById('authSuccess').textContent=''}
-function showAuthError(msg){document.getElementById('authError').textContent=msg;document.getElementById('authSuccess').textContent=''}
-function showAuthSuccess(msg){document.getElementById('authSuccess').textContent=msg;document.getElementById('authError').textContent=''}
-async function handleLogin(e){e.preventDefault();const username=document.getElementById('loginUsername').value;const password=document.getElementById('loginPassword').value;const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='登录中...';try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const d=await r.json();if(d.success){authToken=d.token;currentUser={user_id:d.user_id,username:d.username};localStorage.setItem('authToken',authToken);localStorage.setItem('currentUser',JSON.stringify(currentUser));hideAuthOverlay();updateUserUI();loadChatHistory()}else{showAuthError(d.error||'登录失败')}}catch(e){showAuthError('网络错误')}finally{btn.disabled=false;btn.textContent='登录'}}
-async function handleRegister(e){e.preventDefault();const username=document.getElementById('regUsername').value;const email=document.getElementById('regEmail').value;const password=document.getElementById('regPassword').value;const password2=document.getElementById('regPassword2').value;if(password!==password2){showAuthError('两次密码不一致');return}const btn=document.getElementById('registerBtn');btn.disabled=true;btn.textContent='注册中...';try{const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,email:email||undefined})});const d=await r.json();if(d.success){showAuthSuccess('注册成功，请登录');setTimeout(()=>switchAuthTab('login'),1000)}else{showAuthError(d.error||'注册失败')}}catch(e){showAuthError('网络错误')}finally{btn.disabled=false;btn.textContent='注册'}}
-function handleLogout(){authToken=null;currentUser=null;localStorage.removeItem('authToken');localStorage.removeItem('currentUser');chatHistory=[];currentChatId=null;clearChatUI();showAuthOverlay();updateUserUI()}
-function updateUserUI(){if(currentUser){document.getElementById('userName').textContent=currentUser.username;document.getElementById('userAvatar').textContent=currentUser.username[0].toUpperCase()}else{document.getElementById('userName').textContent='未登录';document.getElementById('userAvatar').textContent='?'}}
-function toggleUserDropdown(){document.getElementById('userDropdown').classList.toggle('show')}
-document.addEventListener('click',function(e){const menu=document.getElementById('userMenu');if(menu&&!menu.contains(e.target)){document.getElementById('userDropdown').classList.remove('show')}});
+window.onload=function(){loadChatHistory();loadTheme();initShortcuts();loadThinkMode();loadAllStats();checkHealth()};
 function loadTheme(){if(localStorage.getItem('theme')==='light'){isDarkTheme=false;document.body.classList.add('light')}}
 function toggleTheme(){isDarkTheme=!isDarkTheme;document.body.classList.toggle('light',!isDarkTheme);localStorage.setItem('theme',isDarkTheme?'dark':'light')}
 function initShortcuts(){document.addEventListener('keydown',function(e){if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'){if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();sendMessage()}return}const k=[];if(e.ctrlKey)k.push('ctrl');if(e.shiftKey)k.push('shift');if(e.altKey)k.push('alt');k.push(e.key.toLowerCase());const sk=k.join('+');if(shortcuts[sk]){e.preventDefault();shortcuts[sk]()}})}
@@ -582,9 +488,8 @@ async function sendMessage(){
   try{
     let opts={method:"POST",signal:abortController.signal};
     const useReact=thinkMode;
-    const headers={'Authorization':authToken?'Bearer '+authToken:''};
-    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react',useReact?'true':'false');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');if(authToken)fd.append('token',authToken);selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
-    else{opts.headers={'Content-Type':'application/json','Authorization':authToken?'Bearer '+authToken:''};opts.body=JSON.stringify({message,stream:true,react:useReact,rag:true,memory:true,multi_agent:false,token:authToken})}
+    if(selectedFiles.length){const fd=new FormData();fd.append('message',message||'请分析这些文件');fd.append('stream','true');fd.append('react',useReact?'true':'false');fd.append('rag','true');fd.append('memory','true');fd.append('multi_agent','false');selectedFiles.forEach(f=>fd.append('files',f));opts.body=fd}
+    else{opts.headers={"Content-Type":"application/json"};opts.body=JSON.stringify({message,stream:true,react:useReact,rag:true,memory:true,multi_agent:false})}
     clearFiles();
     const resp=await fetch("/api/chat",opts);const reader=resp.body.getReader();const dec=new TextDecoder();let buf="",full="",reason="",aiDiv=null;
     
@@ -606,8 +511,8 @@ function stopStreaming(){if(abortController){abortController.abort();abortContro
 function updateBtn(){sendBtn.classList.toggle('stop',isStreaming);sendBtn.innerHTML=isStreaming?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>':'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>'}
 function createNewChat(){stopStreaming();const id='chat_'+Date.now();chatHistory.unshift({id,title:'新对话',messages:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});currentChatId=id;clearChatUI();saveChatHistory();renderConvList()}
 function clearChatUI(){chatMsgs.innerHTML='<div class="welcome" id="welcome"><div class="welcome-icon">&#9670;</div><h2>你好，我是光子</h2><p>可以帮你回答问题、分析代码、搜索信息。</p><div class="welcome-hints"><div class="welcome-hint" onclick="userInput.value=\'帮我分析一段代码\';userInput.focus()">分析代码</div><div class="welcome-hint" onclick="userInput.value=\'搜索最新的AI技术动态\';userInput.focus()">搜索信息</div><div class="welcome-hint" onclick="userInput.value=\'用Mermaid画一个流程图\';userInput.focus()">生成图表</div></div></div><div class="typing" id="typing"><span></span><span></span><span></span></div><div class="thinking" id="thinking"><div class="thinking-inner"><div class="thinking-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path><path d="M10 17v4"></path><path d="M14 17v4"></path></svg></div><div class="thinking-text">思考中<span class="thinking-dots"><span></span><span></span><span></span></span></div></div></div>'}
-function loadChatHistory(){try{const key=currentUser?'chatHistory_'+currentUser.user_id:'chatHistory';const s=localStorage.getItem(key);if(s)chatHistory=JSON.parse(s);else chatHistory=[]}catch(e){chatHistory=[]}renderConvList()}
-function saveChatHistory(){try{const key=currentUser?'chatHistory_'+currentUser.user_id:'chatHistory';localStorage.setItem(key,JSON.stringify(chatHistory))}catch(e){}}
+function loadChatHistory(){try{const s=localStorage.getItem('chatHistory');if(s)chatHistory=JSON.parse(s)}catch(e){chatHistory=[]}renderConvList()}
+function saveChatHistory(){try{localStorage.setItem('chatHistory',JSON.stringify(chatHistory))}catch(e){}}
 function renderConvList(){if(!convItems)return;convItems.innerHTML='';if(!chatHistory.length){convItems.innerHTML='<div class="conv-empty">暂无对话</div>';return}chatHistory.forEach(c=>{const d=document.createElement('div');d.className='conv-item'+(c.id===currentChatId?' active':'');d.innerHTML='<div class="conv-title">'+escapeHtml(c.title)+'</div><div class="conv-time">'+new Date(c.updatedAt).toLocaleString()+'</div><button class="conv-del" onclick="event.stopPropagation();deleteChat(\''+c.id+'\')">&times;</button>';d.onclick=()=>loadChat(c.id);convItems.appendChild(d)})}
 function loadChat(id){stopStreaming();const c=chatHistory.find(h=>h.id===id);if(!c)return;currentChatId=id;clearChatUI();c.messages.forEach(m=>addMessage(m.content,m.isUser));renderConvList()}
 function deleteChat(id){chatHistory=chatHistory.filter(c=>c.id!==id);if(currentChatId===id){currentChatId=null;clearChatUI()}saveChatHistory();renderConvList()}

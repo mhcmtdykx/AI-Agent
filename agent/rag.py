@@ -4,7 +4,8 @@ RAG模块 - 检索增强生成
 """
 import os
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Literal
+from collections import Counter
 
 from .vector_store import TFIDFIndex
 
@@ -21,14 +22,29 @@ class Document:
 
 
 class TextSplitter:
-    """文本分割器"""
+    """文本分割器，支持多种切分策略"""
 
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+    def __init__(
+        self,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+        strategy: Literal["paragraph", "markdown", "semantic"] = "paragraph"
+    ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.strategy = strategy
 
     def split_text(self, text: str) -> List[str]:
-        """分割文本"""
+        """根据策略分割文本"""
+        if self.strategy == "markdown":
+            return self._split_by_markdown(text)
+        elif self.strategy == "semantic":
+            return self._split_by_semantic(text)
+        else:
+            return self._split_by_paragraph(text)
+
+    def _split_by_paragraph(self, text: str) -> List[str]:
+        """按段落分割（原有策略）"""
         paragraphs = re.split(r'\n\s*\n', text)
 
         chunks = []
@@ -52,28 +68,198 @@ class TextSplitter:
         if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
-        # 如果单个段落太长，进一步按句子分割
-        final_chunks = []
+        return self._split_long_chunks(chunks) if chunks else [text]
+
+    def _split_by_markdown(self, text: str) -> List[str]:
+        """按Markdown标题层级切分
+
+        策略：
+        1. 按一级标题(# )分割为大块
+        2. 每个大块内按二级标题(## )分割为中块
+        3. 如果中块仍超长，继续按三级标题(### )分割
+        4. 最后按句子兜底分割超长块
+        """
+        # 按一级标题分割
+        sections = re.split(r'(?=^# )', text, flags=re.MULTILINE)
+        sections = [s.strip() for s in sections if s.strip()]
+
+        chunks = []
+        for section in sections:
+            if len(section) <= self.chunk_size:
+                chunks.append(section)
+                continue
+
+            # 按二级标题分割
+            sub_sections = re.split(r'(?=^## )', section, flags=re.MULTILINE)
+            sub_sections = [s.strip() for s in sub_sections if s.strip()]
+
+            current_chunk = ""
+            for sub in sub_sections:
+                if len(sub) <= self.chunk_size:
+                    if len(current_chunk) + len(sub) > self.chunk_size:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = sub
+                    else:
+                        current_chunk += "\n\n" + sub if current_chunk else sub
+                else:
+                    # 按三级标题分割
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = ""
+                    sub_sub_sections = re.split(r'(?=^### )', sub, flags=re.MULTILINE)
+                    for sss in sub_sub_sections:
+                        sss = sss.strip()
+                        if not sss:
+                            continue
+                        if len(sss) <= self.chunk_size:
+                            chunks.append(sss)
+                        else:
+                            # 按四级标题或段落分割
+                            sub4 = re.split(r'(?=^#### )', sss, flags=re.MULTILINE)
+                            for s in sub4:
+                                s = s.strip()
+                                if s:
+                                    if len(s) <= self.chunk_size:
+                                        chunks.append(s)
+                                    else:
+                                        # 兜底：按段落分割
+                                        para_chunks = self._split_by_paragraph(s)
+                                        chunks.extend(para_chunks)
+
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+
+        return chunks if chunks else [text]
+
+    def _split_by_semantic(self, text: str) -> List[str]:
+        """基于语义相似度的切分
+
+        策略：
+        1. 先按句子分割
+        2. 计算相邻句子的词袋相似度
+        3. 在相似度低的位置切分（语义转折点）
+        4. 合并小块直到达到chunk_size
+        """
+        # 按句子分割
+        sentences = re.split(r'(?<=[。！？.!?])\s*', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        if len(sentences) <= 1:
+            return [text]
+
+        # 计算相邻句子的相似度
+        similarities = []
+        for i in range(len(sentences) - 1):
+            sim = self._compute_similarity(sentences[i], sentences[i + 1])
+            similarities.append(sim)
+
+        # 计算切分阈值（低于平均值 - 标准差的位置）
+        if similarities:
+            avg_sim = sum(similarities) / len(similarities)
+            std_sim = (sum((s - avg_sim) ** 2 for s in similarities) / len(similarities)) ** 0.5
+            threshold = max(avg_sim - std_sim, 0.1)  # 最低阈值0.1
+        else:
+            threshold = 0.3
+
+        # 在低相似度位置切分
+        split_points = [0]
+        for i, sim in enumerate(similarities):
+            if sim < threshold:
+                split_points.append(i + 1)
+        split_points.append(len(sentences))
+
+        # 生成初始块
+        raw_chunks = []
+        for i in range(len(split_points) - 1):
+            start = split_points[i]
+            end = split_points[i + 1]
+            chunk = " ".join(sentences[start:end])
+            if chunk.strip():
+                raw_chunks.append(chunk.strip())
+
+        # 合并小块，分割大块
+        return self._merge_small_chunks(raw_chunks)
+
+    @staticmethod
+    def _compute_similarity(text1: str, text2: str) -> float:
+        """计算两段文本的词袋余弦相似度"""
+        def tokenize(text: str) -> List[str]:
+            tokens = []
+            tokens.extend(re.findall(r'[\u4e00-\u9fff]', text))
+            tokens.extend(re.findall(r'[a-zA-Z]+', text.lower()))
+            return tokens
+
+        tokens1 = tokenize(text1)
+        tokens2 = tokenize(text2)
+
+        if not tokens1 or not tokens2:
+            return 0.0
+
+        counter1 = Counter(tokens1)
+        counter2 = Counter(tokens2)
+
+        all_words = set(counter1.keys()) | set(counter2.keys())
+        dot_product = sum(counter1.get(w, 0) * counter2.get(w, 0) for w in all_words)
+        norm1 = sum(v ** 2 for v in counter1.values()) ** 0.5
+        norm2 = sum(v ** 2 for v in counter2.values()) ** 0.5
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        return dot_product / (norm1 * norm2)
+
+    def _merge_small_chunks(self, chunks: List[str]) -> List[str]:
+        """合并小块，分割大块"""
+        if not chunks:
+            return []
+
+        result = []
+        current_chunk = ""
+
         for chunk in chunks:
             if len(chunk) > self.chunk_size:
-                sentences = re.split(r'([。！？.!?])', chunk)
-                sub_chunk = ""
-                for i in range(0, len(sentences), 2):
-                    sentence = sentences[i]
-                    if i + 1 < len(sentences):
-                        sentence += sentences[i + 1]
-                    if len(sub_chunk) + len(sentence) > self.chunk_size:
-                        if sub_chunk:
-                            final_chunks.append(sub_chunk.strip())
-                        sub_chunk = sentence
-                    else:
-                        sub_chunk += sentence
-                if sub_chunk.strip():
-                    final_chunks.append(sub_chunk.strip())
+                # 先保存当前累积的块
+                if current_chunk:
+                    result.append(current_chunk.strip())
+                    current_chunk = ""
+                # 大块按句子分割
+                result.extend(self._split_long_chunks([chunk]))
+            elif len(current_chunk) + len(chunk) + 1 > self.chunk_size:
+                result.append(current_chunk.strip())
+                current_chunk = chunk
             else:
-                final_chunks.append(chunk)
+                current_chunk += " " + chunk if current_chunk else chunk
 
-        return final_chunks if final_chunks else [text]
+        if current_chunk.strip():
+            result.append(current_chunk.strip())
+
+        return result if result else [" ".join(chunks)]
+
+    def _split_long_chunks(self, chunks: List[str]) -> List[str]:
+        """将超长块按句子分割"""
+        final_chunks = []
+        for chunk in chunks:
+            if len(chunk) <= self.chunk_size:
+                final_chunks.append(chunk)
+                continue
+
+            sentences = re.split(r'([。！？.!?])', chunk)
+            sub_chunk = ""
+            for i in range(0, len(sentences), 2):
+                sentence = sentences[i]
+                if i + 1 < len(sentences):
+                    sentence += sentences[i + 1]
+                if len(sub_chunk) + len(sentence) > self.chunk_size:
+                    if sub_chunk:
+                        final_chunks.append(sub_chunk.strip())
+                    sub_chunk = sentence
+                else:
+                    sub_chunk += sentence
+            if sub_chunk.strip():
+                final_chunks.append(sub_chunk.strip())
+
+        return final_chunks
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
         """分割文档列表"""
@@ -83,6 +269,7 @@ class TextSplitter:
             for i, chunk in enumerate(chunks):
                 metadata = doc.metadata.copy()
                 metadata["chunk_index"] = i
+                metadata["split_strategy"] = self.strategy
                 split_docs.append(Document(chunk, metadata))
         return split_docs
 
@@ -148,9 +335,14 @@ class DocumentLoader:
 class RAGSystem:
     """RAG系统"""
 
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+    def __init__(
+        self,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+        strategy: Literal["paragraph", "markdown", "semantic"] = "paragraph"
+    ):
         self.vector_store = SimpleVectorStore()
-        self.text_splitter = TextSplitter(chunk_size, chunk_overlap)
+        self.text_splitter = TextSplitter(chunk_size, chunk_overlap, strategy)
         self.is_loaded = False
 
     def load_documents(self, documents: List[Document]):
@@ -201,21 +393,5 @@ class RAGSystem:
         }
 
 
-# 全局RAG实例缓存
-_rag_instances = {}
-
-
-def get_rag_system(user_id: str = None) -> RAGSystem:
-    """获取RAG系统实例（支持用户隔离）"""
-    if user_id:
-        if user_id not in _rag_instances:
-            _rag_instances[user_id] = RAGSystem()
-        return _rag_instances[user_id]
-    # 无 user_id 时返回全局实例（向后兼容）
-    if "_global" not in _rag_instances:
-        _rag_instances["_global"] = RAGSystem()
-    return _rag_instances["_global"]
-
-
-# 保持向后兼容
-rag_system = get_rag_system()
+# 全局RAG实例
+rag_system = RAGSystem()

@@ -1,7 +1,7 @@
 # Agent模块初始化
 from .core import Agent, ReActAgent
 from .config import Config
-from .rag import RAGSystem, rag_system, get_rag_system
+from .rag import RAGSystem, rag_system
 from .multi_agent import MultiAgentSystem, get_multi_agent_system
 from .memory import LongTermMemory, MemoryEnhancedAgent, get_long_term_memory
 from .evaluation import EvaluationSystem, get_evaluation_system
@@ -15,7 +15,7 @@ __all__ = [
     "Agent", "ReActAgent", "Config",
     
     # RAG
-    "RAGSystem", "rag_system", "get_rag_system",
+    "RAGSystem", "rag_system",
     
     # 多Agent
     "MultiAgentSystem", "get_multi_agent_system",

@@ -490,27 +490,56 @@ def create_default_mcp_server() -> MCPServer:
 
     @server.tool(name="web_search", description="搜索网络信息（DuckDuckGo即时回答API）")
     def web_search(query: str, max_results: int = 5) -> str:
-        try:
-            import requests
-            url = "https://api.duckduckgo.com/"
-            params = {"q": query, "format": "json", "no_redirect": "1", "no_html": "1"}
-            headers = {"User-Agent": "Mozilla/5.0 (AI-Agent/1.0)"}
-            resp = requests.get(url, params=params, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                return f"搜索失败，状态码: {resp.status_code}"
-            data = resp.json()
-            results = []
-            abstract = data.get("AbstractText", "")
-            if abstract:
-                results.append(f"摘要: {abstract}")
-            for topic in data.get("RelatedTopics", [])[:max_results]:
-                if isinstance(topic, dict) and "Text" in topic:
-                    text = topic["Text"]
-                    first_url = topic.get("FirstURL", "")
-                    results.append(f"- {text}" + (f"\n  链接: {first_url}" if first_url else ""))
-            return "搜索结果:\n" + "\n".join(results) if results else f"未找到关于 '{query}' 的即时回答"
-        except Exception as e:
-            return f"搜索出错: {e}"
+        import time
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                import requests
+                import urllib3
+                # 禁用 SSL 警告（如果需要）
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                url = "https://api.duckduckgo.com/"
+                params = {"q": query, "format": "json", "no_redirect": "1", "no_html": "1"}
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                
+                # 尝试使用 verify=False 来处理 SSL 问题
+                try:
+                    resp = requests.get(url, params=params, headers=headers, timeout=10, verify=True)
+                except requests.exceptions.SSLError:
+                    # 如果 SSL 验证失败，尝试不验证
+                    resp = requests.get(url, params=params, headers=headers, timeout=10, verify=False)
+                
+                if resp.status_code != 200:
+                    return f"搜索失败，状态码: {resp.status_code}"
+                
+                data = resp.json()
+                results = []
+                abstract = data.get("AbstractText", "")
+                if abstract:
+                    results.append(f"摘要: {abstract}")
+                
+                for topic in data.get("RelatedTopics", [])[:max_results]:
+                    if isinstance(topic, dict) and "Text" in topic:
+                        text = topic["Text"]
+                        first_url = topic.get("FirstURL", "")
+                        results.append(f"- {text}" + (f"\n  链接: {first_url}" if first_url else ""))
+                
+                return "搜索结果:\n" + "\n".join(results) if results else f"未找到关于 '{query}' 的即时回答"
+                
+            except requests.exceptions.SSLError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # 等待后重试
+                    continue
+                return f"搜索出错（SSL连接问题）: {e}\n建议：请检查网络连接或稍后重试"
+            except requests.exceptions.ConnectionError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                return f"搜索出错（网络连接失败）: {e}\n建议：请检查网络连接"
+            except Exception as e:
+                return f"搜索出错: {e}"
 
     @server.tool(name="weather", description="查询指定城市的实时天气信息")
     def weather(city: str) -> str:
